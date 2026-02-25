@@ -1,0 +1,7 @@
+node_modules/
+dist/
+.idea/
+repomix/
+indexer/src/bin
+gallery-dl/.venv/
+__pycache__/
