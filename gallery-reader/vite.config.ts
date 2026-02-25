@@ -29,37 +29,37 @@ export default defineConfig({
 		https: getHttpsConfig(),
 		proxy: {
 			'/api': {
-				target: 'https://localhost:29749',
+				target: 'https://localhost:11556',
 				secure: false,
 				changeOrigin: true,
 			},
 			'/media': {
-				target: 'https://localhost:29749',
+				target: 'https://localhost:11556',
 				secure: false,
 				changeOrigin: true,
 			},
 			'/search': {
-				target: 'https://localhost:29750',
+				target: 'https://localhost:11557',
 				secure: false,
 				changeOrigin: true,
 			},
 			'/gallery': {
-				target: 'https://localhost:29750',
+				target: 'https://localhost:11557',
 				secure: false,
 				changeOrigin: true,
 			},
 			'/galleries': {
-				target: 'https://localhost:29750',
+				target: 'https://localhost:11557',
 				secure: false,
 				changeOrigin: true,
 			},
 			'/refresh': {
-				target: 'https://localhost:29750',
+				target: 'https://localhost:11557',
 				secure: false,
 				changeOrigin: true,
 			},
 			'/immediate': {
-				target: 'https://localhost:29748',
+				target: 'https://localhost:11558',
 				secure: false,
 				changeOrigin: true,
 			},

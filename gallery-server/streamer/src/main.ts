@@ -16,7 +16,7 @@ app.use(cors({ origin: "*" }));
 
 // Proxy to indexer (pathFilter so Express doesn't strip the path prefix)
 app.use(createProxyMiddleware({
-    target: 'https://localhost:29750',
+    target: 'https://localhost:11557',
     secure: false,
     changeOrigin: true,
     pathFilter: ['/search', '/gallery', '/galleries', '/refresh', '/facets'],
@@ -24,7 +24,7 @@ app.use(createProxyMiddleware({
 
 // Proxy to downloader
 app.use(createProxyMiddleware({
-    target: 'https://localhost:29748',
+    target: 'https://localhost:11558',
     secure: false,
     changeOrigin: true,
     pathFilter: ['/immediate'],

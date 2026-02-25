@@ -9,7 +9,7 @@ import { Gallery } from './types.js';
 import { searchLibrary } from './search.js';
 
 const app = express();
-const PORT = 29750;
+const PORT = 11557;
 
 let libraryCache: Gallery[] = [];
 

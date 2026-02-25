@@ -5,3 +5,4 @@ build/
 .vite/
 .idea/
 .venv/
+gallery-server/gallery-dl/

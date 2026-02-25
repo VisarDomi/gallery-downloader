@@ -10,7 +10,7 @@ const GALLERY_DL = path.join(REPO_ROOT, 'gallery-dl');
 const MEDIA_ROOT = path.join(os.homedir(), 'Pictures');
 
 export const CONFIG = {
-    PORT: 29748,
+    PORT: 11558,
     PYTHON_PATH: path.join(GALLERY_DL, '.venv', 'bin', 'python3'),
     GALLERY_DL_SCRIPT: path.join(GALLERY_DL, 'gallery_dl'),
     WORKING_DIR: MEDIA_ROOT,
