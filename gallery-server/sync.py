@@ -8,6 +8,8 @@ Each entry = 1 HTTP request (language-specific nozomi index).
 Usage:
     python3 sync.py                  # dry-run: show what's new
     python3 sync.py --queue          # send new galleries to downloader
+    python3 sync.py --verify         # dry-run verify (show existing gallery count)
+    python3 sync.py --queue --verify # queue new, then append all existing for gap-filling
 """
 
 import struct
@@ -23,8 +25,9 @@ from pathlib import Path
 DOMAIN = "gold-usergeneratedcontent.net"
 ROOT = "https://hitomi.la"
 ARCHIVE_DB = os.path.expanduser("~/Pictures/gallery-dl/hitomi.sqlite3")
+HITOMI_DIR = os.path.expanduser("~/Pictures/gallery-dl/hitomi")
 ARTISTS_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "artists.txt")
-DOWNLOADER_URL = "https://localhost:29748/queue"
+DOWNLOADER_URL = "https://localhost:11558/queue"
 DEFAULT_LANGUAGE = "japanese"
 
 
@@ -103,6 +106,25 @@ def load_archived_gallery_ids() -> set[int]:
     return ids
 
 
+def load_disk_gallery_ids() -> list[int]:
+    """Get all gallery IDs from on-disk directories, sorted oldest first."""
+    ids = []
+    if not os.path.isdir(HITOMI_DIR):
+        return ids
+    for name in os.listdir(HITOMI_DIR):
+        if name.startswith('.'):
+            continue
+        full = os.path.join(HITOMI_DIR, name)
+        if not os.path.isdir(full):
+            continue
+        try:
+            ids.append(int(name.split(' ')[0]))
+        except ValueError:
+            pass
+    ids.sort()
+    return ids
+
+
 def post_to_downloader(urls: list[str]) -> bool:
     payload = json.dumps({"urls": "\n".join(urls)}).encode()
     req = urllib.request.Request(
@@ -125,6 +147,7 @@ def post_to_downloader(urls: list[str]) -> bool:
 
 def main():
     do_queue = "--queue" in sys.argv
+    do_verify = "--verify" in sys.argv
 
     if not os.path.exists(ARTISTS_FILE):
         print(f"No artists.txt found at {ARTISTS_FILE}")
@@ -137,14 +160,23 @@ def main():
         print("artists.txt is empty.")
         return
 
+    mode_parts = []
+    if do_queue:
+        mode_parts.append("QUEUE")
+    if do_verify:
+        mode_parts.append("VERIFY")
+    if not mode_parts:
+        mode_parts.append("DRY-RUN")
+
     print(f"Loaded {len(lines)} entries from artists.txt")
-    print(f"Mode: {'QUEUE' if do_queue else 'DRY-RUN'}")
+    print(f"Mode: {' + '.join(mode_parts)}")
     print("=" * 60)
 
     print("Loading archive...", end=" ", flush=True)
     archived = load_archived_gallery_ids()
     print(f"{len(archived)} galleries downloaded\n")
 
+    # --- Phase 1: find new galleries ---
     all_new_urls = []
     total_remote = 0
     total_new = 0
@@ -182,18 +214,33 @@ def main():
     print("\n" + "=" * 60)
     print(f"Total: {total_remote} remote, {len(archived)} archived, {total_new} new")
 
-    if not all_new_urls:
-        print("Nothing new.")
+    # --- Phase 2: verify existing galleries ---
+    verify_urls = []
+    if do_verify:
+        disk_ids = load_disk_gallery_ids()
+        verify_urls = [gallery_url(gid) for gid in disk_ids]
+        print(f"Verify: {len(verify_urls)} existing galleries will be re-checked for gaps")
+
+    # --- Queue ---
+    combined = all_new_urls + verify_urls
+
+    if not combined:
+        print("Nothing to do.")
         return
 
     if do_queue:
-        print(f"\nQueueing {len(all_new_urls)} galleries...")
-        if post_to_downloader(all_new_urls):
+        print(f"\nQueueing {len(combined)} galleries ({len(all_new_urls)} new + {len(verify_urls)} verify)...")
+        if post_to_downloader(combined):
             print("Queued successfully!")
         else:
             print("Failed. Is the downloader running?")
     else:
-        print(f"\n{len(all_new_urls)} new. Run with --queue to download.")
+        parts = []
+        if all_new_urls:
+            parts.append(f"{len(all_new_urls)} new")
+        if verify_urls:
+            parts.append(f"{len(verify_urls)} verify")
+        print(f"\n{' + '.join(parts)}. Run with --queue to download.")
 
 
 if __name__ == "__main__":

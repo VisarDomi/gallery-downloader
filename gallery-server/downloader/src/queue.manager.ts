@@ -1,4 +1,4 @@
-import { spawn, ChildProcess } from 'child_process';
+import { spawn, ChildProcess, execSync } from 'child_process';
 import fs from 'fs';
 import path from 'path';
 import { hitomi } from 'gallery-sources';
@@ -7,6 +7,7 @@ import { socketService } from './socket.service.js';
 import { stripAnsi, getUniqueItems } from './utils.js';
 
 const SOURCE_DIR = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
+const QUEUE_FILE = path.join(SOURCE_DIR, '.queue-backup.json');
 
 // Remove stale markers from previous runs (e.g. power failure, crash)
 try {
@@ -14,6 +15,26 @@ try {
         if (f.startsWith('.downloading-')) fs.unlinkSync(path.join(SOURCE_DIR, f));
     }
 } catch (_) {}
+
+function saveQueue(currentUrl: string | null, queue: string[]) {
+    const data = { currentUrl, queue, savedAt: new Date().toISOString() };
+    try { fs.writeFileSync(QUEUE_FILE, JSON.stringify(data)); } catch (_) {}
+}
+
+function loadQueue(): { currentUrl: string | null; queue: string[] } | null {
+    try {
+        const raw = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf-8'));
+        const urls: string[] = [];
+        if (raw.currentUrl) urls.push(raw.currentUrl);
+        if (Array.isArray(raw.queue)) urls.push(...raw.queue);
+        if (urls.length === 0) return null;
+        return { currentUrl: null, queue: urls };
+    } catch (_) { return null; }
+}
+
+function clearQueueFile() {
+    try { fs.unlinkSync(QUEUE_FILE); } catch (_) {}
+}
 
 function extractGalleryId(url: string): string | null {
     return hitomi.download.parseIdFromUrl(url);
@@ -29,6 +50,27 @@ function createMarker(galleryId: string) {
 
 function removeMarker(galleryId: string) {
     try { fs.unlinkSync(markerPath(galleryId)); } catch (_) {}
+}
+
+function deletePartialGallery(galleryId: string) {
+    // Delete gallery directory from disk
+    try {
+        for (const name of fs.readdirSync(SOURCE_DIR)) {
+            if (name.startsWith(galleryId + ' ') && fs.statSync(path.join(SOURCE_DIR, name)).isDirectory()) {
+                fs.rmSync(path.join(SOURCE_DIR, name), { recursive: true, force: true });
+                console.log(`Deleted partial gallery dir: ${name}`);
+                break;
+            }
+        }
+    } catch (_) {}
+    // Remove archive entries
+    const archivePath = hitomi.download.archivePath(CONFIG.WORKING_DIR);
+    try {
+        execSync(`sqlite3 "${archivePath}" "DELETE FROM archive WHERE entry LIKE 'hitomi${galleryId}_%'"`, { stdio: 'pipe' });
+        console.log(`Cleaned archive entries for gallery ${galleryId}`);
+    } catch (_) {}
+    // Remove marker
+    removeMarker(galleryId);
 }
 
 export interface QueueStatus {
@@ -57,6 +99,15 @@ class QueueManager {
 
     private emitState() {
         socketService.emitStatus(this.getStatus());
+        this.persist();
+    }
+
+    private persist() {
+        if (this.downloadQueue.length === 0 && !this.currentUrl) {
+            clearQueueFile();
+        } else {
+            saveQueue(this.currentUrl, this.downloadQueue);
+        }
     }
 
     public processQueue() {
@@ -158,13 +209,32 @@ class QueueManager {
 
     public cancel() {
         this.stopSignal = true;
+        const partialId = this.currentGalleryId;
         if (this.currentChild) {
             socketService.emitLog(`\n--- CANCELLING... ---\n`);
             this.currentChild.kill('SIGINT');
         } else {
             socketService.emitLog(`\n--- QUEUE STOPPED ---\n`);
         }
+        // Clean up partial download
+        if (partialId) {
+            deletePartialGallery(partialId);
+            socketService.emitLog(`Deleted partial gallery ${partialId}\n`);
+        }
+        this.downloadQueue = [];
+        this.currentUrl = null;
+        this.currentGalleryId = null;
         this.emitState();
+    }
+
+    public restore() {
+        const saved = loadQueue();
+        if (!saved || saved.queue.length === 0) return;
+        console.log(`Restoring ${saved.queue.length} queued items from backup...`);
+        this.downloadQueue = saved.queue;
+        this.stopSignal = false;
+        this.emitState();
+        this.processQueue();
     }
 }
 

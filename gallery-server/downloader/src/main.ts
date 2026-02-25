@@ -79,4 +79,5 @@ app.post('/cancel', (_req, res) => {
 // --- START ---
 server.listen(CONFIG.PORT, '0.0.0.0', () => {
     logServerInfo(CONFIG.PORT);
+    queueManager.restore();
 });
