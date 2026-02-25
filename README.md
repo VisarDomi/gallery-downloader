@@ -9,12 +9,6 @@ Monorepo for a self-hosted gallery viewer PWA with search, sprite thumbnails, an
 - **gallery-server** — Backend services (indexer, streamer, downloader)
 - **gallery-index** — JSON registry of available sources
 
-## gallery-dl fork
-
-The downloader uses a [fork of gallery-dl](https://github.com/VisarDomi/gallery-dl) (branch: `hitomi-thumbnails`) that adds thumbnail downloading for the Hitomi provider. The fork is pinned as a git submodule at `gallery-server/gallery-dl`.
-
-The fork's changes are small and limited to the Hitomi extractor, so rebasing onto upstream gallery-dl should be straightforward.
-
 ## Setup
 
 ```bash

@@ -1,3 +1,8 @@
+// Requires a fork of gallery-dl that adds thumbnail downloading for Hitomi:
+// https://github.com/VisarDomi/gallery-dl (branch: hitomi-thumbnails)
+// The changes are small and limited to the Hitomi extractor, so rebasing
+// onto upstream gallery-dl should be straightforward.
+
 import type { Source, Gallery } from '../types.js';
 
 function checkMatch(g: Gallery, ns: string, val: string): boolean {
