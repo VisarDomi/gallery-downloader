@@ -1,3 +1,4 @@
+import { hitomi } from 'gallery-sources';
 import { API } from '../config.js';
 import type { Gallery, SearchResponse } from '../types.js';
 
@@ -42,15 +43,6 @@ export async function getGalleries(ids: number[]): Promise<Gallery[]> {
     return items.map(normalizeGallery);
 }
 
-function toHitomiUrl(input: string): string {
-    const trimmed = input.trim();
-    if (/^https?:\/\//.test(trimmed)) return trimmed;
-    // Bare gallery ID
-    if (/^\d+$/.test(trimmed)) return `https://hitomi.la/galleries/${trimmed}.html`;
-    // Search query like "language:japanese artist:urakan"
-    return `https://hitomi.la/search.html?${encodeURIComponent(trimmed)}`;
-}
-
 export async function facets(): Promise<{
     languages: [string, number][];
     artists: [string, number][];
@@ -61,7 +53,7 @@ export async function facets(): Promise<{
 }
 
 export async function sendToDownloader(query: string): Promise<void> {
-    const url = toHitomiUrl(query);
+    const url = hitomi.toSourceUrl(query);
     await fetch(API.DOWNLOADER(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

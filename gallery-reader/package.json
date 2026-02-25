@@ -1,5 +1,5 @@
 {
-    "name": "hitomi-frontend",
+    "name": "gallery-reader",
     "version": "1.0.0",
     "private": true,
     "type": "module",
@@ -9,6 +9,7 @@
         "preview": "vite preview"
     },
     "dependencies": {
+        "gallery-sources": "*",
         "@sveltejs/adapter-static": "^3.0.10",
         "@sveltejs/kit": "^2.50.2",
         "@sveltejs/vite-plugin-svelte": "^6.2.4",

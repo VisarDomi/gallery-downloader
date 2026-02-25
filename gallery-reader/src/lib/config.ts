@@ -1,7 +1,9 @@
+import { hitomi } from 'gallery-sources';
+
 export const PAGE_SIZE = 25;
-export const SPRITE_THUMB_WIDTH = 100;
-export const SPRITE_THUMB_HEIGHT = 300;
-export const MAX_THUMBS_PER_STRIP = 163;
+export const SPRITE_THUMB_WIDTH = hitomi.sprite.thumbWidth;
+export const SPRITE_THUMB_HEIGHT = hitomi.sprite.thumbHeight;
+export const MAX_THUMBS_PER_STRIP = hitomi.sprite.maxPerStrip;
 
 // API URL builders — same-origin, works in both dev proxy and prod
 export const API = {

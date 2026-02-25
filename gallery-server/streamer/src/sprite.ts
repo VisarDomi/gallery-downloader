@@ -2,12 +2,11 @@ import fs from 'fs';
 import path from 'path';
 import sharp from 'sharp';
 import type { Request, Response } from 'express';
+import { hitomi } from 'gallery-sources';
 import { CONFIG } from './config.js';
 
-const THUMB_WIDTH = 100;
-const THUMB_HEIGHT = 300;
-const MAX_THUMBS_PER_STRIP = 163; // 16384px / 100px
-const GALLERY_ROOT = path.join(CONFIG.MEDIA_ROOT, 'gallery-dl/hitomi');
+const { maxPerStrip, thumbWidth, thumbHeight } = hitomi.sprite;
+const GALLERY_ROOT = path.join(CONFIG.MEDIA_ROOT, hitomi.gallerySubdir);
 
 function findGalleryDir(galleryId: string): string | null {
     const prefix = `${galleryId} `;
@@ -31,7 +30,7 @@ function getThumbFiles(galleryDir: string): string[] {
     try {
         const files = fs.readdirSync(galleryDir);
         return files
-            .filter(f => f.includes('_thumb_'))
+            .filter(f => f.includes(hitomi.thumbnailMarker))
             .sort();
     } catch (_e) {
         return [];
@@ -53,7 +52,7 @@ export const handleSpriteRequest = async (req: Request, res: Response) => {
     }
 
     // Skip galleries still being downloaded
-    if (fs.existsSync(path.join(GALLERY_ROOT, `.downloading-${galleryId}`))) {
+    if (fs.existsSync(path.join(GALLERY_ROOT, hitomi.downloadingMarker(galleryId)))) {
         return res.status(409).json({ error: 'Gallery is still downloading' });
     }
 
@@ -74,12 +73,12 @@ export const handleSpriteRequest = async (req: Request, res: Response) => {
         return res.status(404).json({ error: 'No thumbnails found' });
     }
 
-    const start = stripIdx * MAX_THUMBS_PER_STRIP;
+    const start = stripIdx * maxPerStrip;
     if (start >= allThumbs.length) {
         return res.status(404).json({ error: 'Strip index out of range' });
     }
 
-    const end = Math.min(start + MAX_THUMBS_PER_STRIP, allThumbs.length);
+    const end = Math.min(start + maxPerStrip, allThumbs.length);
     const stripThumbs = allThumbs.slice(start, end);
 
     try {
@@ -88,23 +87,23 @@ export const handleSpriteRequest = async (req: Request, res: Response) => {
         for (const thumb of stripThumbs) {
             const thumbPath = path.join(galleryDir, thumb);
             const buf = await sharp(thumbPath)
-                .resize(THUMB_WIDTH, THUMB_HEIGHT, { fit: 'cover', position: 'centre' })
+                .resize(thumbWidth, thumbHeight, { fit: 'cover', position: 'centre' })
                 .toBuffer();
             resizedBuffers.push(buf);
         }
 
         // Stitch horizontally
-        const totalWidth = stripThumbs.length * THUMB_WIDTH;
+        const totalWidth = stripThumbs.length * thumbWidth;
         const composites = resizedBuffers.map((buf, i) => ({
             input: buf,
-            left: i * THUMB_WIDTH,
+            left: i * thumbWidth,
             top: 0,
         }));
 
         const sprite = await sharp({
             create: {
                 width: totalWidth,
-                height: THUMB_HEIGHT,
+                height: thumbHeight,
                 channels: 3,
                 background: { r: 0, g: 0, b: 0 },
             },

@@ -1,26 +1,26 @@
 import { spawn, ChildProcess } from 'child_process';
 import fs from 'fs';
 import path from 'path';
+import { hitomi } from 'gallery-sources';
 import { CONFIG } from './config.js';
 import { socketService } from './socket.service.js';
 import { stripAnsi, getUniqueItems } from './utils.js';
 
-const HITOMI_DIR = path.join(CONFIG.WORKING_DIR, 'gallery-dl/hitomi');
+const SOURCE_DIR = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
 
 // Remove stale markers from previous runs (e.g. power failure, crash)
 try {
-    for (const f of fs.readdirSync(HITOMI_DIR)) {
-        if (f.startsWith('.downloading-')) fs.unlinkSync(path.join(HITOMI_DIR, f));
+    for (const f of fs.readdirSync(SOURCE_DIR)) {
+        if (f.startsWith('.downloading-')) fs.unlinkSync(path.join(SOURCE_DIR, f));
     }
 } catch (_) {}
 
 function extractGalleryId(url: string): string | null {
-    const match = url.match(/(\d+)\.html/);
-    return match ? match[1] : null;
+    return hitomi.download.parseIdFromUrl(url);
 }
 
 function markerPath(galleryId: string): string {
-    return path.join(HITOMI_DIR, `.downloading-${galleryId}`);
+    return path.join(SOURCE_DIR, hitomi.downloadingMarker(galleryId));
 }
 
 function createMarker(galleryId: string) {

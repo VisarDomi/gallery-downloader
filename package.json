@@ -1,9 +1,16 @@
 {
-    "name": "gallery-server",
+    "name": "gallery-reader-monorepo",
     "version": "1.0.0",
     "private": true,
+    "workspaces": [
+        "gallery-sources",
+        "gallery-reader",
+        "gallery-server/indexer",
+        "gallery-server/streamer",
+        "gallery-server/downloader"
+    ],
     "scripts": {
-        "build": "npm run build --prefix indexer && npm run build --prefix streamer && npm run build --prefix downloader",
+        "build": "npm run build -w gallery-sources && npm run build -w gallery-reader && npm run build -w indexer && npm run build -w streamer && npm run build -w downloader",
         "start": "npm run build && systemctl --user start hitomi-indexer hitomi-streamer hitomi-downloader",
         "restart": "npm run build && systemctl --user restart hitomi-indexer hitomi-streamer hitomi-downloader",
         "stop": "systemctl --user stop hitomi-indexer hitomi-streamer hitomi-downloader",
