@@ -1,4 +1,0 @@
-[submodule "gallery-dl"]
-	path = gallery-dl
-	url = git@github.com:VisarDomi/gallery-dl.git
-	branch = hitomi-thumbnails
