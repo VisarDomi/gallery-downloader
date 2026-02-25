@@ -1,0 +1,5 @@
+node_modules/
+.idea/
+dist/
+repomix/
+src/bin

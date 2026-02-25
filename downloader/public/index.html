@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Queue Manager</title>
+    <script src="/socket.io/socket.io.js"></script>
+    <style>
+        * { box-sizing: border-box; }
+        body { font-family: 'Segoe UI', monospace; background: #1e1e1e; color: #ccc; margin: 0; padding: 20px; display: flex; flex-direction: column; height: 100vh; gap: 20px; }
+        h2 { margin-top: 0; font-size: 1rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 10px; }
+
+        .top-row { display: flex; gap: 20px; height: 45%; }
+        .bottom-row { flex: 1; display: flex; gap: 20px; min-height: 0; }
+
+        .panel { background: #252526; padding: 15px; border-radius: 6px; border: 1px solid #333; display: flex; flex-direction: column; position: relative; }
+        .panel-half { flex: 1; }
+        .panel-full { flex: 1; }
+
+        textarea { width: 100%; flex: 1; background: #111; color: #eee; border: 1px solid #444; padding: 10px; resize: none; font-family: monospace; font-size: 14px; outline: none; }
+        textarea:focus { border-color: #007acc; }
+
+        .btn-group { margin-top: 10px; display: flex; justify-content: flex-end; gap: 10px; }
+        button { padding: 8px 16px; border: none; cursor: pointer; font-weight: bold; color: white; border-radius: 4px; }
+        .btn-red { background: #d32f2f; }
+        .btn-blue { background: #1976d2; }
+        .btn-stop { background: #b71c1c; border: 1px solid #ff5252; float: right; font-size: 0.8rem; padding: 4px 10px; }
+
+        #log-window {
+            background: #000;
+            color: #4af626;
+            font-family: 'Consolas', 'Courier New', monospace;
+            padding: 10px;
+            overflow-y: auto;
+            flex: 1;
+            font-size: 0.9rem;
+            white-space: pre-wrap;
+            border: 1px solid #444;
+        }
+
+        .header-row { display: flex; justify-content: space-between; align-items: center; width: 100%; margin-bottom: 5px; }
+    </style>
+</head>
+<body>
+
+<div class="top-row">
+    <!-- IMMEDIATE PANEL -->
+    <div class="panel panel-half">
+        <div class="header-row">
+            <h2 style="color: #e57373;">Immediate / Active</h2>
+            <button class="btn-stop" id="btn-cancel">STOP</button>
+        </div>
+        <textarea id="input-immediate" placeholder="Line 1: Starts NOW.&#10;Lines 2+: Added to FRONT."></textarea>
+        <div class="btn-group">
+            <button class="btn-red" id="btn-inject">INJECT</button>
+        </div>
+    </div>
+
+    <!-- QUEUE PANEL -->
+    <div class="panel panel-half">
+        <h2 style="color: #64b5f6;">Queue</h2>
+        <textarea id="input-queue" placeholder="Waiting list..."></textarea>
+        <div class="btn-group">
+            <button class="btn-blue" id="btn-save">SAVE</button>
+        </div>
+    </div>
+</div>
+
+<!-- LOGS PANEL -->
+<div class="bottom-row">
+    <div class="panel panel-full">
+        <h2>Live Logs</h2>
+        <div id="log-window">Connecting...</div>
+    </div>
+</div>
+
+<script>
+    const socket = io(); // Connects to relative root
+
+    // DOM Elements
+    const elImmediate = document.getElementById('input-immediate');
+    const elQueue = document.getElementById('input-queue');
+    const elLogs = document.getElementById('log-window');
+    const btnInject = document.getElementById('btn-inject');
+    const btnSave = document.getElementById('btn-save');
+    const btnCancel = document.getElementById('btn-cancel');
+
+    // State
+    const MAX_LOG_LINES = 1000;
+    let logs = [];
+    let logBuffer = [];
+    let isRunning = false;
+
+    // Focus Tracking
+    let focusImmediate = false;
+    let focusQueue = false;
+
+    elImmediate.addEventListener('focus', () => focusImmediate = true);
+    elImmediate.addEventListener('blur', () => focusImmediate = false);
+    elQueue.addEventListener('focus', () => focusQueue = true);
+    elQueue.addEventListener('blur', () => focusQueue = false);
+
+    // --- Socket Events ---
+    socket.on('connect', () => {
+        logBuffer.push("--- Connected to Backend ---\n");
+        fetchStatus();
+    });
+
+    socket.on('log_chunk', (msg) => {
+        logBuffer.push(msg);
+    });
+
+    socket.on('status_update', (status) => {
+        isRunning = !status.stopped;
+
+        // Only update inputs if user isn't typing in them
+        if (!focusImmediate && status.currentUrl) {
+            elImmediate.value = status.currentUrl;
+        }
+        if (!focusQueue) {
+            const qText = status.queue.join('\n');
+            if (elQueue.value !== qText) elQueue.value = qText;
+        }
+
+        // UI Feedback
+        elImmediate.style.border = !isRunning ? "2px solid #d32f2f" : "1px solid #444";
+    });
+
+    // --- Log Loop (60fps) ---
+    setInterval(() => {
+        if (logBuffer.length === 0) return;
+
+        logs = [...logs, ...logBuffer];
+        if (logs.length > MAX_LOG_LINES) logs = logs.slice(-MAX_LOG_LINES);
+
+        // Render
+        elLogs.textContent = logs.join('');
+        elLogs.scrollTop = elLogs.scrollHeight;
+
+        logBuffer = [];
+    }, 100);
+
+    // --- API Calls ---
+    function fetchStatus() {
+        fetch('/status').then(r => r.json()).then(d => {
+            // Initial load
+            if(d.currentUrl) elImmediate.value = d.currentUrl;
+            if(d.queue) elQueue.value = d.queue.join('\n');
+        });
+    }
+
+    btnInject.onclick = async () => {
+        const text = elImmediate.value;
+        if(!text.trim()) return;
+        await fetch('/immediate', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ urls: text })
+        });
+    };
+
+    btnSave.onclick = async () => {
+        const text = elQueue.value;
+        await fetch('/queue', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ urls: text })
+        });
+    };
+
+    btnCancel.onclick = async () => {
+        await fetch('/cancel', { method: 'POST' });
+    };
+</script>
+</body>
+</html>

@@ -1,0 +1,22 @@
+{
+    "name": "indexer",
+    "version": "1.0.0",
+    "main": "dist/main.js",
+    "type": "module",
+    "scripts": {
+        "compile-go": "mkdir -p src/bin && go build -o src/bin/scanner src/go/scanner.go",
+        "build": "npm run compile-go && rm -rf dist && tsc",
+        "start": "npm run build && node dist/main.js"
+    },
+    "dependencies": {
+        "cors": "^2.8.6",
+        "express": "^5.2.1",
+        "glob": "^13.0.0"
+    },
+    "devDependencies": {
+        "@types/cors": "^2.8.19",
+        "@types/express": "^5.0.6",
+        "@types/node": "^25.1.0",
+        "typescript": "^5.9.3"
+    }
+}
