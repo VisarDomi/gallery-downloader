@@ -12,7 +12,7 @@
 </script>
 
 <svelte:head>
-    <title>Hitomi Reader</title>
+    <title>Gallery Reader</title>
 </svelte:head>
 
 <div class="safe-area">

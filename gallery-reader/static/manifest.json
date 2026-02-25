@@ -1,6 +1,6 @@
 {
-    "name": "Hitomi Reader",
-    "short_name": "Hitomi",
+    "name": "Gallery Reader",
+    "short_name": "Gallery Reader",
     "start_url": "/",
     "display": "standalone",
     "background_color": "#000000",
