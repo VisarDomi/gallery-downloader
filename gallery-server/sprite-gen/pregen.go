@@ -75,19 +75,6 @@ func runPregen() {
 func processGallery(galleryDir, galleryName string) (int, error) {
 	spritesDir := filepath.Join(galleryDir, ".sprites")
 
-	// Fast check: if .sprites/ has enough strips, skip
-	existing, err := os.ReadDir(spritesDir)
-	if err == nil && len(existing) > 0 {
-		thumbs, err := getThumbFiles(galleryDir)
-		if err != nil {
-			return 0, err
-		}
-		expectedStrips := int(math.Ceil(float64(len(thumbs)) / float64(maxPerStrip)))
-		if len(existing) >= expectedStrips {
-			return 0, nil
-		}
-	}
-
 	thumbs, err := getThumbFiles(galleryDir)
 	if err != nil {
 		return 0, err
@@ -97,13 +84,27 @@ func processGallery(galleryDir, galleryName string) (int, error) {
 	}
 
 	stripCount := int(math.Ceil(float64(len(thumbs)) / float64(maxPerStrip)))
-	generated := 0
 
+	// Check existing sprites — if count matches, skip; if mismatched, delete stale dir
+	existing, err := os.ReadDir(spritesDir)
+	if err == nil && len(existing) > 0 {
+		existingStrips := 0
+		for _, e := range existing {
+			if strings.HasPrefix(e.Name(), "strip_") && strings.HasSuffix(e.Name(), ".webp") {
+				existingStrips++
+			}
+		}
+		if existingStrips == stripCount {
+			return 0, nil
+		}
+		// Stale sprites (thumb count changed since last generation)
+		log.Printf("  Stale sprites for %s: have %d strips, need %d — regenerating", galleryName, existingStrips, stripCount)
+		os.RemoveAll(spritesDir)
+	}
+
+	generated := 0
 	for i := 0; i < stripCount; i++ {
 		cachePath := filepath.Join(spritesDir, fmt.Sprintf("strip_%d.webp", i))
-		if _, err := os.Stat(cachePath); err == nil {
-			continue
-		}
 
 		data, err := generateStrip(galleryDir, i, thumbs)
 		if err != nil {

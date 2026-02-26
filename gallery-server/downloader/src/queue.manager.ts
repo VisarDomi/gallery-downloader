@@ -5,6 +5,7 @@ import { hitomi } from 'gallery-sources';
 import { CONFIG } from './config.js';
 import { socketService } from './socket.service.js';
 import { stripAnsi, getUniqueItems } from './utils.js';
+import { triggerSpriteGeneration, countThumbs } from './sprite.trigger.js';
 
 const SOURCE_DIR = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
 const QUEUE_FILE = path.join(SOURCE_DIR, '.queue-backup.json');
@@ -52,6 +53,17 @@ function removeMarker(galleryId: string) {
     try { fs.unlinkSync(markerPath(galleryId)); } catch (_) {}
 }
 
+function findGalleryDirByPrefix(galleryId: string): string | null {
+    try {
+        for (const name of fs.readdirSync(SOURCE_DIR)) {
+            if (name.startsWith(galleryId + ' ') && fs.statSync(path.join(SOURCE_DIR, name)).isDirectory()) {
+                return path.join(SOURCE_DIR, name);
+            }
+        }
+    } catch (_) {}
+    return null;
+}
+
 function deletePartialGallery(galleryId: string) {
     // Delete gallery directory from disk
     try {
@@ -87,6 +99,7 @@ class QueueManager {
     private currentGalleryId: string | null = null;
     private isInterrupted: boolean = false;
     private stopSignal: boolean = false;
+    private preDownloadThumbCount: number = 0;
 
     public getStatus(): QueueStatus {
         return {
@@ -124,7 +137,12 @@ class QueueManager {
         if (!this.currentUrl) return;
 
         this.currentGalleryId = extractGalleryId(this.currentUrl);
-        if (this.currentGalleryId) createMarker(this.currentGalleryId);
+        if (this.currentGalleryId) {
+            createMarker(this.currentGalleryId);
+            // Snapshot thumb count before download to detect changes
+            const galleryDir = findGalleryDirByPrefix(this.currentGalleryId);
+            this.preDownloadThumbCount = galleryDir ? countThumbs(galleryDir) : 0;
+        }
 
         this.emitState();
         socketService.emitLog(`\n--- STARTING: ${this.currentUrl} ---\n`);
@@ -154,15 +172,18 @@ class QueueManager {
 
         this.currentChild.on('close', (code) => {
             socketService.emitLog(`\n--- FINISHED (Code ${code}) ---\n`);
+            const completedGalleryId = this.currentGalleryId;
+            const preCount = this.preDownloadThumbCount;
             // Only remove marker on clean completion — interrupted/cancelled
             // downloads leave partial files, so keep them hidden from indexer
             if (!this.isInterrupted && !this.stopSignal) {
-                if (this.currentGalleryId) removeMarker(this.currentGalleryId);
+                if (completedGalleryId) removeMarker(completedGalleryId);
             }
             this.currentChild = null;
             this.currentGalleryId = null;
 
             if (!this.isInterrupted && !this.stopSignal) {
+                if (completedGalleryId) triggerSpriteGeneration(completedGalleryId, preCount);
                 this.processQueue();
             }
         });
