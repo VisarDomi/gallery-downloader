@@ -1,12 +1,12 @@
 import fs from 'fs';
 import path from 'path';
-import url from 'url';
-import { Worker } from 'worker_threads';
+import http from 'http';
 import type { Request, Response } from 'express';
 import { hitomi } from 'gallery-sources';
 import { CONFIG } from './config.js';
 
 const GALLERY_ROOT = path.join(CONFIG.MEDIA_ROOT, hitomi.gallerySubdir);
+const SOCKET_PATH = '/run/user/1000/gallery-sprite-gen.sock';
 
 // Lazy cache: gallery ID → full directory path. Populated on first lookup,
 // falls back to directory scan on miss, evicts on stale entry.
@@ -38,25 +38,36 @@ function findGalleryDir(galleryId: string): string | null {
     return null;
 }
 
-// Worker thread for off-main-thread sprite generation
-const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
-const worker = new Worker(path.join(__dirname, 'sprite-worker.js'));
-let jobId = 0;
-const pendingJobs = new Map<number, { resolve: (buf: Buffer) => void; reject: (err: Error) => void }>();
-
-worker.on('message', (msg: { id: number; buffer?: Buffer; error?: string }) => {
-    const job = pendingJobs.get(msg.id);
-    if (!job) return;
-    pendingJobs.delete(msg.id);
-    if (msg.error) job.reject(new Error(msg.error));
-    else job.resolve(msg.buffer!);
-});
-
-function generateSpriteInWorker(galleryDir: string, stripIdx: number, cachePath: string): Promise<Buffer> {
+function requestSpriteGeneration(galleryDir: string, stripIdx: number, cachePath: string): Promise<void> {
     return new Promise((resolve, reject) => {
-        const id = ++jobId;
-        pendingJobs.set(id, { resolve, reject });
-        worker.postMessage({ id, galleryDir, stripIdx, cachePath });
+        const body = JSON.stringify({ galleryDir, stripIndex: stripIdx, cachePath });
+        const req = http.request(
+            {
+                socketPath: SOCKET_PATH,
+                path: '/generate',
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(body),
+                },
+            },
+            (res) => {
+                let data = '';
+                res.on('data', (chunk) => (data += chunk));
+                res.on('end', () => {
+                    try {
+                        const parsed = JSON.parse(data);
+                        if (parsed.ok) resolve();
+                        else reject(new Error(parsed.error || 'sprite-gen failed'));
+                    } catch {
+                        reject(new Error(`sprite-gen bad response: ${data}`));
+                    }
+                });
+            },
+        );
+        req.on('error', (err) => reject(new Error(`sprite-gen connect: ${err.message}`)));
+        req.write(body);
+        req.end();
     });
 }
 
@@ -90,12 +101,12 @@ export const handleSpriteRequest = async (req: Request, res: Response) => {
         return res.sendFile(cachePath, { dotfiles: 'allow' });
     }
 
-    // Generate in worker thread (doesn't block Express event loop)
+    // Request generation from sprite-gen daemon (runs at idle CPU priority)
     try {
-        const sprite = await generateSpriteInWorker(galleryDir, stripIdx, cachePath);
+        await requestSpriteGeneration(galleryDir, stripIdx, cachePath);
         res.setHeader('Content-Type', 'image/webp');
         res.setHeader('Cache-Control', 'public, max-age=31536000');
-        res.send(sprite);
+        return res.sendFile(cachePath, { dotfiles: 'allow' });
     } catch (e) {
         console.error(`Sprite generation error for gallery ${galleryId}, strip ${stripIdx}:`, e);
         res.status(500).json({ error: 'Failed to generate sprite' });
