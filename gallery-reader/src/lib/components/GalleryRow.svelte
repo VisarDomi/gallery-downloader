@@ -34,8 +34,11 @@
             try {
                 const res = await fetch(API.SPRITE(id, stripIdx), { signal });
                 if (res.status === 202) {
-                    // Still generating — wait and retry
-                    await new Promise(r => setTimeout(r, delay));
+                    // Still generating — wait and retry, but respect abort
+                    await new Promise<void>((resolve, reject) => {
+                        const timer = setTimeout(resolve, delay);
+                        signal.addEventListener('abort', () => { clearTimeout(timer); reject(); }, { once: true });
+                    });
                     delay = Math.min(delay * 1.5, 5000);
                     continue;
                 }

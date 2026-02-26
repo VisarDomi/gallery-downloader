@@ -188,7 +188,7 @@
                 for (const entry of entries) {
                     if (entry.isIntersecting) {
                         const idx = pageElements.indexOf(entry.target as HTMLElement);
-                        if (idx >= 0) loadPage(g, idx, signal);
+                        if (idx >= 0 && !signal.aborted) loadPage(g, idx, signal);
                     }
                 }
             },

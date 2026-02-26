@@ -1,40 +1,63 @@
 import fs from 'fs';
 import path from 'path';
-import sharp from 'sharp';
+import url from 'url';
+import { Worker } from 'worker_threads';
 import type { Request, Response } from 'express';
 import { hitomi } from 'gallery-sources';
 import { CONFIG } from './config.js';
 
-const { maxPerStrip, thumbWidth, thumbHeight } = hitomi.sprite;
 const GALLERY_ROOT = path.join(CONFIG.MEDIA_ROOT, hitomi.gallerySubdir);
 
+// Lazy cache: gallery ID → full directory path. Populated on first lookup,
+// falls back to directory scan on miss, evicts on stale entry.
+const galleryDirCache = new Map<string, string>();
+
 function findGalleryDir(galleryId: string): string | null {
+    // Check cache first
+    const cached = galleryDirCache.get(galleryId);
+    if (cached) {
+        try {
+            if (fs.statSync(cached).isDirectory()) return cached;
+        } catch { /* stale — evict and rescan */ }
+        galleryDirCache.delete(galleryId);
+    }
+
+    // Scan directory
     const prefix = `${galleryId} `;
     try {
-        const entries = fs.readdirSync(GALLERY_ROOT);
-        for (const entry of entries) {
+        for (const entry of fs.readdirSync(GALLERY_ROOT)) {
             if (entry.startsWith(prefix)) {
                 const fullPath = path.join(GALLERY_ROOT, entry);
                 if (fs.statSync(fullPath).isDirectory()) {
+                    galleryDirCache.set(galleryId, fullPath);
                     return fullPath;
                 }
             }
         }
-    } catch (_e) {
-        // Directory not found
-    }
+    } catch { /* directory not found */ }
     return null;
 }
 
-function getThumbFiles(galleryDir: string): string[] {
-    try {
-        const files = fs.readdirSync(galleryDir);
-        return files
-            .filter(f => f.includes(hitomi.thumbnailMarker))
-            .sort();
-    } catch (_e) {
-        return [];
-    }
+// Worker thread for off-main-thread sprite generation
+const __dirname = path.dirname(url.fileURLToPath(import.meta.url));
+const worker = new Worker(path.join(__dirname, 'sprite-worker.js'));
+let jobId = 0;
+const pendingJobs = new Map<number, { resolve: (buf: Buffer) => void; reject: (err: Error) => void }>();
+
+worker.on('message', (msg: { id: number; buffer?: Buffer; error?: string }) => {
+    const job = pendingJobs.get(msg.id);
+    if (!job) return;
+    pendingJobs.delete(msg.id);
+    if (msg.error) job.reject(new Error(msg.error));
+    else job.resolve(msg.buffer!);
+});
+
+function generateSpriteInWorker(galleryDir: string, stripIdx: number, cachePath: string): Promise<Buffer> {
+    return new Promise((resolve, reject) => {
+        const id = ++jobId;
+        pendingJobs.set(id, { resolve, reject });
+        worker.postMessage({ id, galleryDir, stripIdx, cachePath });
+    });
 }
 
 export const handleSpriteRequest = async (req: Request, res: Response) => {
@@ -67,55 +90,9 @@ export const handleSpriteRequest = async (req: Request, res: Response) => {
         return res.sendFile(cachePath, { dotfiles: 'allow' });
     }
 
-    // Get thumbnail files for this strip
-    const allThumbs = getThumbFiles(galleryDir);
-    if (allThumbs.length === 0) {
-        return res.status(404).json({ error: 'No thumbnails found' });
-    }
-
-    const start = stripIdx * maxPerStrip;
-    if (start >= allThumbs.length) {
-        return res.status(404).json({ error: 'Strip index out of range' });
-    }
-
-    const end = Math.min(start + maxPerStrip, allThumbs.length);
-    const stripThumbs = allThumbs.slice(start, end);
-
+    // Generate in worker thread (doesn't block Express event loop)
     try {
-        // Resize all thumbnails to uniform cells
-        const resizedBuffers: Buffer[] = [];
-        for (const thumb of stripThumbs) {
-            const thumbPath = path.join(galleryDir, thumb);
-            const buf = await sharp(thumbPath)
-                .resize(thumbWidth, thumbHeight, { fit: 'cover', position: 'centre' })
-                .toBuffer();
-            resizedBuffers.push(buf);
-        }
-
-        // Stitch horizontally
-        const totalWidth = stripThumbs.length * thumbWidth;
-        const composites = resizedBuffers.map((buf, i) => ({
-            input: buf,
-            left: i * thumbWidth,
-            top: 0,
-        }));
-
-        const sprite = await sharp({
-            create: {
-                width: totalWidth,
-                height: thumbHeight,
-                channels: 3,
-                background: { r: 0, g: 0, b: 0 },
-            },
-        })
-            .composite(composites)
-            .webp({ quality: 80 })
-            .toBuffer();
-
-        // Cache to disk
-        fs.mkdirSync(spritesDir, { recursive: true });
-        fs.writeFileSync(cachePath, sprite);
-
+        const sprite = await generateSpriteInWorker(galleryDir, stripIdx, cachePath);
         res.setHeader('Content-Type', 'image/webp');
         res.setHeader('Cache-Control', 'public, max-age=31536000');
         res.send(sprite);
