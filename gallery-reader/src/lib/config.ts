@@ -12,6 +12,7 @@ export const API = {
         if (query) params.set('q', query);
         return `/search?${params}`;
     },
+    GALLERY: (id: number) => `/gallery/${id}`,
     FACETS: () => '/facets',
     GALLERIES: () => '/galleries',
     REFRESH: () => '/refresh',

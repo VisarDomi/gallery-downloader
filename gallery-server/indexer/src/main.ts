@@ -4,14 +4,11 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { scanLibrary } from './scanner.js';
-import { Gallery } from './types.js';
-import { searchLibrary } from './search.js';
+import { runScan } from './scanner.js';
+import { searchGalleries, getGalleryDetail, getGalleryListItems, getFacets, reopenDb } from './db.js';
 
 const app = express();
 const PORT = 11557;
-
-let libraryCache: Gallery[] = [];
 
 const logServerInfo = (port: number) => {
     const networkInterfaces = os.networkInterfaces();
@@ -58,28 +55,13 @@ app.use((req, res, next) => {
 });
 
 // --- INITIAL SCAN ---
-scanLibrary().then(data => libraryCache = data);
+runScan().then(() => {
+    console.log('Initial scan complete, DB ready.');
+});
 
 // --- ENDPOINTS ---
 app.get('/facets', (_req, res) => {
-    const langMap = new Map<string, number>();
-    const artistMap = new Map<string, number>();
-    const groupMap = new Map<string, number>();
-
-    for (const g of libraryCache) {
-        if (g.language) langMap.set(g.language, (langMap.get(g.language) ?? 0) + 1);
-        for (const a of g.artist) artistMap.set(a, (artistMap.get(a) ?? 0) + 1);
-        for (const gr of g.group) groupMap.set(gr, (groupMap.get(gr) ?? 0) + 1);
-    }
-
-    const sorted = (m: Map<string, number>) =>
-        [...m.entries()].sort((a, b) => b[1] - a[1]);
-
-    res.json({
-        languages: sorted(langMap),
-        artists: sorted(artistMap),
-        groups: sorted(groupMap),
-    });
+    res.json(getFacets());
 });
 
 app.get('/search', (req, res) => {
@@ -87,9 +69,7 @@ app.get('/search', (req, res) => {
     const limit = Number(req.query.limit) || 50;
     const offset = Number(req.query.offset) || 0;
 
-    const result = searchLibrary(libraryCache, q, limit, offset);
-
-    res.json(result);
+    res.json(searchGalleries(q, limit, offset));
 });
 
 app.get('/gallery/:id', (req, res) => {
@@ -99,7 +79,7 @@ app.get('/gallery/:id', (req, res) => {
         return;
     }
 
-    const gallery = libraryCache.find(g => g.gallery_id === id);
+    const gallery = getGalleryDetail(id);
     if (!gallery) {
         res.status(404).json({ error: 'Gallery not found' });
         return;
@@ -107,7 +87,7 @@ app.get('/gallery/:id', (req, res) => {
     res.json(gallery);
 });
 
-// Bulk fetch for Favorites
+// Bulk fetch for Favorites — returns slim items
 app.post('/galleries', (req, res) => {
     const ids = req.body.ids as number[];
     if (!Array.isArray(ids) || ids.some(id => isNaN(id))) {
@@ -115,15 +95,14 @@ app.post('/galleries', (req, res) => {
         return;
     }
 
-    // Strict number comparison
-    const found = libraryCache.filter(g => ids.includes(g.gallery_id));
-    res.json(found);
+    res.json(getGalleryListItems(ids));
 });
 
 app.post('/refresh', async (_req, res) => {
     console.log('Refresh requested...');
     res.json({ status: 'scanning' });
-    libraryCache = await scanLibrary();
+    await runScan();
+    reopenDb();
 });
 
 server.listen(PORT, '0.0.0.0', () => {

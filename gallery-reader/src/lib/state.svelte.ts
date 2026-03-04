@@ -1,5 +1,5 @@
 import { PAGE_SIZE, SPRITE_THUMB_WIDTH } from './config.js';
-import type { Gallery, ViewMode } from './types.js';
+import type { Gallery, GalleryListItem, ViewMode } from './types.js';
 import * as api from './services/api.js';
 import * as db from './services/db.js';
 
@@ -47,7 +47,7 @@ class UIState {
 
 // -- Search State --
 class SearchState {
-    allGalleries = $state<Gallery[]>([]);
+    allGalleries = $state<GalleryListItem[]>([]);
     currentQuery = $state('');
     currentPage = $state(0);
     isLoading = $state(false);
@@ -64,7 +64,7 @@ class SearchState {
         return Math.max(1, Math.ceil(this.allGalleries.length / PAGE_SIZE));
     }
 
-    get paginatedGalleries(): Gallery[] {
+    get paginatedGalleries(): GalleryListItem[] {
         const start = this.currentPage * PAGE_SIZE;
         return this.allGalleries.slice(start, start + PAGE_SIZE);
     }
@@ -147,10 +147,13 @@ class ReaderState {
         return this.progress[galleryId] ?? 0;
     }
 
-    openReader(gallery: Gallery, startPage: number, uiState: UIState) {
+    async openReader(item: GalleryListItem, startPage: number, uiState: UIState) {
         // Abort all sprite fetches synchronously to free HTTP connections
         // before reader starts loading images (avoids HTTP/1.1 6-conn queuing)
         uiState.abortAllSprites();
+
+        // Fetch full gallery detail
+        const gallery = await api.getGallery(item.gallery_id);
         this.activeGallery = gallery;
         this.currentPageIndex = startPage;
         // Save progress immediately so resume works even with immediate back
@@ -189,14 +192,14 @@ class ReaderState {
 class FavoritesState {
     favoriteIds = $state<Set<number>>(new Set());
     favoriteQueries = $state<Record<number, string>>({});
-    favoriteGalleries = $state<Gallery[]>([]);
+    favoriteGalleries = $state<GalleryListItem[]>([]);
     currentPage = $state(0);
 
     get totalPages() {
         return Math.max(1, Math.ceil(this.favoriteGalleries.length / PAGE_SIZE));
     }
 
-    get paginatedGalleries(): Gallery[] {
+    get paginatedGalleries(): GalleryListItem[] {
         const start = this.currentPage * PAGE_SIZE;
         return this.favoriteGalleries.slice(start, start + PAGE_SIZE);
     }

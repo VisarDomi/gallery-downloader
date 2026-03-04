@@ -1,8 +1,23 @@
 import { hitomi } from 'gallery-sources';
 import { API } from '../config.js';
-import type { Gallery, SearchResponse } from '../types.js';
+import type { Gallery, GalleryListItem, SearchResponse } from '../types.js';
 
-function normalizeGallery(g: Record<string, unknown>): Gallery {
+export async function search(query: string = ''): Promise<SearchResponse> {
+    const res = await fetch(API.SEARCH(query));
+    const data = await res.json();
+
+    if (!Array.isArray(data.items)) {
+        data.items = [];
+    }
+
+    return data;
+}
+
+export async function getGallery(id: number): Promise<Gallery> {
+    const res = await fetch(API.GALLERY(id));
+    const g = await res.json();
+
+    // Ensure arrays are initialized
     if (!Array.isArray(g.artist)) g.artist = [];
     if (!Array.isArray(g.group)) g.group = [];
     if (!Array.isArray(g.parody)) g.parody = [];
@@ -13,34 +28,16 @@ function normalizeGallery(g: Record<string, unknown>): Gallery {
     if (!Array.isArray(g.thumbnailFiles)) g.thumbnailFiles = [];
     if (!Array.isArray(g.dimensions)) g.dimensions = [];
 
-    if (typeof g.gallery_id !== 'number') {
-        g.gallery_id = Number(g.gallery_id) || 0;
-    }
-
-    return g as unknown as Gallery;
+    return g as Gallery;
 }
 
-export async function search(query: string = ''): Promise<SearchResponse> {
-    const res = await fetch(API.SEARCH(query));
-    const data = await res.json();
-
-    if (data.items && Array.isArray(data.items)) {
-        data.items = data.items.map(normalizeGallery);
-    } else {
-        data.items = [];
-    }
-
-    return data;
-}
-
-export async function getGalleries(ids: number[]): Promise<Gallery[]> {
+export async function getGalleries(ids: number[]): Promise<GalleryListItem[]> {
     const res = await fetch(API.GALLERIES(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ids }),
     });
-    const items = await res.json();
-    return items.map(normalizeGallery);
+    return res.json();
 }
 
 export async function facets(): Promise<{

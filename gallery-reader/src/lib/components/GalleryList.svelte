@@ -1,12 +1,12 @@
 <script lang="ts">
-    import type { Gallery } from '$lib/types.js';
+    import type { GalleryListItem } from '$lib/types.js';
     import GalleryRow from './GalleryRow.svelte';
 
     let {
         galleries,
         allowReplay = false,
     }: {
-        galleries: Gallery[];
+        galleries: GalleryListItem[];
         allowReplay?: boolean;
     } = $props();
 </script>

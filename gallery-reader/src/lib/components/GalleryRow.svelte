@@ -2,14 +2,14 @@
     import { onMount, onDestroy } from 'svelte';
     import { appState } from '$lib/state.svelte.js';
     import { API, SPRITE_THUMB_WIDTH, SPRITE_THUMB_HEIGHT, MAX_THUMBS_PER_STRIP } from '$lib/config.js';
-    import type { Gallery } from '$lib/types.js';
+    import type { GalleryListItem } from '$lib/types.js';
     import InfoModal from './InfoModal.svelte';
 
     let {
         gallery,
         allowReplay = false,
     }: {
-        gallery: Gallery;
+        gallery: GalleryListItem;
         allowReplay?: boolean;
     } = $props();
 
@@ -21,7 +21,7 @@
     let abortController: AbortController | undefined;
 
     const id = $derived(gallery.gallery_id);
-    const thumbCount = $derived(gallery.thumbnailFiles?.length || 0);
+    const thumbCount = $derived(gallery.thumb_count || 0);
     const stripCount = $derived(Math.ceil(thumbCount / MAX_THUMBS_PER_STRIP));
 
     const isFav = $derived(appState.favorites.favoriteIds.has(id));
@@ -170,5 +170,5 @@
 </div>
 
 {#if showInfoModal}
-    <InfoModal {gallery} onClose={() => showInfoModal = false} onSearchFilter={handleSearchFilter} />
+    <InfoModal galleryId={id} onClose={() => showInfoModal = false} onSearchFilter={handleSearchFilter} />
 {/if}
