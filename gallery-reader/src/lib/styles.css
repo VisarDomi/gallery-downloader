@@ -377,10 +377,30 @@ html, body {
 
 .modal-footer {
     margin-top: 8px;
+    display: flex;
+    gap: 8px;
+}
+
+.modal-delete-btn {
+    flex: 1;
+    padding: 12px;
+    background: #cc2200;
+    color: white;
+    font-weight: bold;
+    font-size: 1rem;
+    border-radius: 8px;
+}
+
+.modal-delete-btn:active {
+    background: #991a00;
+}
+
+.modal-delete-btn:disabled {
+    opacity: 0.5;
 }
 
 .modal-ok-btn {
-    width: 100%;
+    flex: 2;
     padding: 12px;
     background: #0044cc;
     color: white;

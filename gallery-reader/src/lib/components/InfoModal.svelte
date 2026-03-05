@@ -1,6 +1,7 @@
 <script lang="ts">
     import type { Gallery } from '$lib/types.js';
     import * as api from '$lib/services/api.js';
+    import { appState } from '$lib/state.svelte.js';
 
     let { galleryId, onClose, onSearchFilter }: {
         galleryId: number;
@@ -9,6 +10,7 @@
     } = $props();
 
     let gallery = $state<Gallery | null>(null);
+    let deleting = $state(false);
 
     $effect(() => {
         api.getGallery(galleryId).then(g => gallery = g);
@@ -18,6 +20,24 @@
 
     function handleBackdropClick(e: MouseEvent) {
         if (e.target === e.currentTarget) onClose();
+    }
+
+    async function handleDelete() {
+        if (deleting) return;
+        deleting = true;
+        try {
+            const result = await appState.delete_.deleteGalleries([galleryId]);
+            if (result.deleted.length > 0) {
+                appState.toast.show('Deleted');
+                onClose();
+            } else if (result.skipped.length > 0) {
+                appState.toast.show(`Skipped: ${result.skipped[0].reason}`, 3000);
+            }
+        } catch (e) {
+            appState.toast.show(`Delete failed: ${e}`, 3000);
+        } finally {
+            deleting = false;
+        }
     }
 
     $effect(() => {
@@ -109,6 +129,9 @@
             </div>
         {/if}
         <div class="modal-footer">
+            <button class="modal-delete-btn" onclick={handleDelete} disabled={deleting}>
+                {deleting ? 'Deleting...' : 'Delete'}
+            </button>
             <button class="modal-ok-btn" onclick={onClose}>OK</button>
         </div>
     </div>

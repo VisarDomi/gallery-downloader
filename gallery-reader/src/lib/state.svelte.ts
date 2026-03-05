@@ -297,6 +297,46 @@ class FavoritesState {
     }
 }
 
+// -- Delete State --
+class DeleteState {
+    async deleteGalleries(ids: number[]): Promise<{ deleted: number[]; skipped: { id: number; reason: string }[] }> {
+        const result = await api.deleteGalleries(ids);
+
+        if (result.deleted.length > 0) {
+            // Clean frontend IDB
+            await db.removeGalleries(result.deleted);
+
+            // Update favorites state
+            const deletedSet = new Set(result.deleted);
+            const newFavIds = new Set(appState.favorites.favoriteIds);
+            const newQueries = { ...appState.favorites.favoriteQueries };
+            for (const id of result.deleted) {
+                newFavIds.delete(id);
+                delete newQueries[id];
+            }
+            appState.favorites.favoriteIds = newFavIds;
+            appState.favorites.favoriteQueries = newQueries;
+            appState.favorites.favoriteGalleries = appState.favorites.favoriteGalleries.filter(
+                g => !deletedSet.has(g.gallery_id)
+            );
+
+            // Update progress state
+            const newProgress = { ...appState.reader.progress };
+            for (const id of result.deleted) {
+                delete newProgress[id];
+            }
+            appState.reader.progress = newProgress;
+
+            // Remove from search results
+            appState.searchState.allGalleries = appState.searchState.allGalleries.filter(
+                g => !deletedSet.has(g.gallery_id)
+            );
+        }
+
+        return result;
+    }
+}
+
 // -- Saved Searches State --
 class SavedState {
     savedSearches = $state<string[]>([]);
@@ -338,6 +378,7 @@ class AppState {
     favorites = new FavoritesState();
     saved = new SavedState();
     downloader = new DownloaderState();
+    delete_ = new DeleteState();
     toast = new ToastState();
 
     async init() {

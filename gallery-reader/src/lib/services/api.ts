@@ -61,3 +61,19 @@ export async function sendToDownloader(query: string): Promise<void> {
 export async function refreshIndex(): Promise<void> {
     await fetch(API.REFRESH(), { method: 'POST' });
 }
+
+export async function deleteGalleries(ids: number[]): Promise<{
+    deleted: number[];
+    skipped: { id: number; reason: string }[];
+}> {
+    const res = await fetch(API.DELETE(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ids }),
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+}

@@ -153,6 +153,21 @@ export async function removeSavedSearch(query: string): Promise<void> {
     });
 }
 
+export async function removeGalleries(ids: number[]): Promise<void> {
+    const db = await openDB();
+    return new Promise((resolve) => {
+        const tx = db.transaction(['progress', 'favorites'], 'readwrite');
+        const progressStore = tx.objectStore('progress');
+        const favoritesStore = tx.objectStore('favorites');
+        for (const id of ids) {
+            progressStore.delete(id);
+            favoritesStore.delete(id);
+        }
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+    });
+}
+
 export async function getAllSavedSearches(): Promise<string[]> {
     const db = await openDB();
     return new Promise((resolve) => {

@@ -8,6 +8,7 @@ import { CONFIG } from './config.js';
 import { createHttpsServer } from './ssl.js';
 import { handleBatchRequest } from './batch.js';
 import { handleSpriteRequest } from './sprite.js';
+import { handleDeleteRequest } from './delete.js';
 
 const app = express();
 
@@ -52,6 +53,7 @@ app.get('/api/cert', (_req, res) => {
 });
 
 app.post('/api/batch', handleBatchRequest);
+app.post('/api/delete', handleDeleteRequest);
 
 // Media static serving (gallery images)
 app.use('/media', express.static(CONFIG.MEDIA_ROOT, {

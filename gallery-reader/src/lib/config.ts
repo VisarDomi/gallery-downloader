@@ -19,4 +19,5 @@ export const API = {
     DOWNLOADER: () => '/immediate',
     SPRITE: (galleryId: number, stripIndex: number) => `/api/sprite/${galleryId}/${stripIndex}`,
     MEDIA: (path: string) => `/media/${path.split('/').map(encodeURIComponent).join('/')}`,
+    DELETE: () => '/api/delete',
 };
