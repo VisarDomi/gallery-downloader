@@ -6,3 +6,4 @@ build/
 .idea/
 .venv/
 gallery-server/gallery-dl/
+gallery-server/sprite-gen/sprite-gen
