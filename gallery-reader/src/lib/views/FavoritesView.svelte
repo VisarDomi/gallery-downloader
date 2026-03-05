@@ -17,7 +17,7 @@
     }
 </script>
 
-<div use:swipeBack={handleSwipeBack}>
+<div use:swipeBack={{ onClose: handleSwipeBack, ui: appState.ui }}>
 <SearchBar />
 
 <div class="content-wrapper">

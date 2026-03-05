@@ -11,6 +11,6 @@
     }
 </script>
 
-<div use:swipeBack={handleClose}>
+<div use:swipeBack={{ onClose: handleClose, ui: appState.ui }}>
     <Reader {gallery} {startPage} onClose={handleClose} />
 </div>

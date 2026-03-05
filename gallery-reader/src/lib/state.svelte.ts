@@ -19,7 +19,8 @@ class ToastState {
 
 // -- UI State --
 class UIState {
-    viewStack = $state<ViewMode[]>(['list']);
+    viewMode = $state<ViewMode>('list');
+    viewStack = $state<ViewMode[]>([]);
     // Gallery ID → horizontal scrollLeft (pixels) for thumbnail strips
     stripScrolls: Record<number, number> = {};
     // Swipe-to-go-back gesture state
@@ -27,20 +28,18 @@ class UIState {
     isSwiping = $state(false);     // true while layers should be mounted (drag + animation)
     swipeAnimating = $state(false); // true during release animation (enables CSS transition)
 
-    get viewMode(): ViewMode {
-        return this.viewStack[this.viewStack.length - 1];
-    }
-
-    get backTarget(): ViewMode | null {
-        return this.viewStack.length > 1 ? this.viewStack[this.viewStack.length - 2] : null;
+    peekBack(): ViewMode | null {
+        return this.viewStack.length > 0 ? this.viewStack[this.viewStack.length - 1] : null;
     }
 
     pushView(mode: ViewMode) {
-        this.viewStack = [...this.viewStack, mode];
+        this.viewStack = [...this.viewStack, this.viewMode];
+        this.viewMode = mode;
     }
 
     popView() {
-        if (this.viewStack.length <= 1) return;
+        if (this.viewStack.length === 0) return;
+        this.viewMode = this.viewStack[this.viewStack.length - 1];
         this.viewStack = this.viewStack.slice(0, -1);
     }
 

@@ -1,8 +1,10 @@
 <script lang="ts">
-    import { untrack } from 'svelte';
+    import { untrack, getContext } from 'svelte';
     import { appState } from '$lib/state.svelte.js';
     import { API } from '$lib/config.js';
     import type { Gallery } from '$lib/types.js';
+
+    const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
 
     let {
         gallery,
@@ -73,7 +75,7 @@
         clearTimeout(suppressTimer);
         pageElements.length = g.count;
 
-        const viewReader = document.getElementById('view-reader');
+        const viewReader = getReaderRoot();
 
         // Progress tracking observer (unchanged behavior)
         progressObserver?.disconnect();
@@ -132,6 +134,21 @@
             preObs.disconnect();
             clearTimeout(suppressTimer);
         };
+    });
+
+    // Disconnect observers during swipe to prevent intersection recalculations
+    $effect(() => {
+        if (appState.ui.isSwiping) {
+            progressObserver?.disconnect();
+            preloadObserver?.disconnect();
+        } else if (gallery) {
+            for (const el of pageElements) {
+                if (el) {
+                    progressObserver?.observe(el);
+                    preloadObserver?.observe(el);
+                }
+            }
+        }
     });
 
 </script>
