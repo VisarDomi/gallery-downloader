@@ -19,14 +19,30 @@ class ToastState {
 
 // -- UI State --
 class UIState {
-    viewMode = $state<ViewMode>('list');
-    previousViewMode = $state<ViewMode>('list');
+    viewStack = $state<ViewMode[]>(['list']);
     // Gallery ID → horizontal scrollLeft (pixels) for thumbnail strips
     stripScrolls: Record<number, number> = {};
     // Swipe-to-go-back gesture state
-    swipeProgress = $state(0);    // 0 = reader fully visible, 1 = fully swiped away
+    swipeProgress = $state(0);    // 0 = current view fully visible, 1 = fully swiped away
     isSwiping = $state(false);     // true while layers should be mounted (drag + animation)
     swipeAnimating = $state(false); // true during release animation (enables CSS transition)
+
+    get viewMode(): ViewMode {
+        return this.viewStack[this.viewStack.length - 1];
+    }
+
+    get backTarget(): ViewMode | null {
+        return this.viewStack.length > 1 ? this.viewStack[this.viewStack.length - 2] : null;
+    }
+
+    pushView(mode: ViewMode) {
+        this.viewStack = [...this.viewStack, mode];
+    }
+
+    popView() {
+        if (this.viewStack.length <= 1) return;
+        this.viewStack = this.viewStack.slice(0, -1);
+    }
 
     // Centralized sprite fetch abort — frees HTTP connections synchronously
     private _spriteControllers = new Set<AbortController>();
@@ -37,11 +53,6 @@ class UIState {
     abortAllSprites() {
         for (const c of this._spriteControllers) c.abort();
         this._spriteControllers.clear();
-    }
-
-    setView(mode: ViewMode) {
-        this.previousViewMode = this.viewMode;
-        this.viewMode = mode;
     }
 }
 
@@ -158,7 +169,7 @@ class ReaderState {
         this.currentPageIndex = startPage;
         // Save progress immediately so resume works even with immediate back
         this.saveProgress(gallery.gallery_id, startPage);
-        uiState.setView('reader');
+        uiState.pushView('reader');
     }
 
     closeReader(uiState: UIState) {
@@ -178,7 +189,7 @@ class ReaderState {
             });
         }
         this.activeGallery = null;
-        uiState.setView(uiState.previousViewMode);
+        uiState.popView();
     }
 
     async saveProgress(galleryId: number, pageIndex: number) {
@@ -242,7 +253,7 @@ class FavoritesState {
     }
 
     async loadView() {
-        appState.ui.setView('favorites');
+        appState.ui.pushView('favorites');
         this.currentPage = 0;
         const ids = [...this.favoriteIds];
         if (ids.length === 0) {
@@ -273,7 +284,7 @@ class FavoritesState {
             appState.searchState.currentPage = Math.floor(idx / PAGE_SIZE);
         }
 
-        appState.ui.setView('list');
+        appState.ui.pushView('list');
 
         // After DOM update, scroll to gallery and highlight
         setTimeout(() => {

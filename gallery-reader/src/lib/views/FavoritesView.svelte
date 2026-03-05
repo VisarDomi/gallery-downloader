@@ -1,5 +1,6 @@
 <script lang="ts">
     import { appState } from '$lib/state.svelte.js';
+    import { swipeBack } from '$lib/actions/swipeBack.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
     import GalleryList from '$lib/components/GalleryList.svelte';
     import Pagination from '$lib/components/Pagination.svelte';
@@ -10,8 +11,13 @@
     function scrollToTop() {
         document.getElementById('view-favorites')?.scrollTo(0, 0);
     }
+
+    function handleSwipeBack() {
+        appState.ui.popView();
+    }
 </script>
 
+<div use:swipeBack={handleSwipeBack}>
 <SearchBar />
 
 <div class="content-wrapper">
@@ -28,4 +34,5 @@
         totalPages={appState.favorites.totalPages}
         onPage={(p) => { appState.favorites.currentPage = p; scrollToTop(); }}
     />
+</div>
 </div>

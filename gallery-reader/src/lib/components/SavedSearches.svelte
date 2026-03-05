@@ -5,7 +5,7 @@
 
     function handleClick(query: string) {
         appState.searchState.restoreFromQuery(query);
-        appState.ui.setView('list');
+        appState.ui.pushView('list');
     }
 
     function handleDelete(e: Event, query: string) {

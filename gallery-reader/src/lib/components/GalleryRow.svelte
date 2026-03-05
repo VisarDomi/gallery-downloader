@@ -136,7 +136,7 @@
 
     function handleSearchFilter(opts: { artist?: string; group?: string; language?: string }) {
         showInfoModal = false;
-        appState.ui.setView('list');
+        appState.ui.pushView('list');
         appState.searchState.searchByFilter(opts);
     }
 

@@ -10,7 +10,7 @@
 
     function handleSubmit(e: Event) {
         e.preventDefault();
-        appState.ui.setView('list');
+        appState.ui.pushView('list');
         appState.searchState.restoreFromQuery(inputValue);
     }
 
@@ -25,14 +25,18 @@
 
     function handleSavedView() {
         if (appState.ui.viewMode === 'saved') {
-            appState.ui.setView('list');
+            appState.ui.popView();
         } else {
-            appState.ui.setView('saved');
+            appState.ui.pushView('saved');
         }
     }
 
     function handleFavoritesView() {
-        appState.favorites.loadView();
+        if (appState.ui.viewMode === 'favorites') {
+            appState.ui.popView();
+        } else {
+            appState.favorites.loadView();
+        }
     }
 
     // Sync input to full query (filters + free text) when search completes
@@ -60,7 +64,7 @@
     <div class="filter-row">
         <select
             bind:value={appState.searchState.selectedLanguage}
-            onchange={() => { appState.ui.setView('list'); appState.searchState.search(freeText()); }}
+            onchange={() => { appState.ui.pushView('list'); appState.searchState.search(freeText()); }}
         >
             <option value="">Any Language</option>
             {#each appState.searchState.availableLanguages as [lang, count]}
@@ -69,7 +73,7 @@
         </select>
         <select
             bind:value={appState.searchState.selectedArtist}
-            onchange={() => { appState.searchState.selectedGroup = ''; appState.ui.setView('list'); appState.searchState.search(freeText()); }}
+            onchange={() => { appState.searchState.selectedGroup = ''; appState.ui.pushView('list'); appState.searchState.search(freeText()); }}
         >
             <option value="">Any Artist</option>
             {#each appState.searchState.availableArtists as [artist, count]}
@@ -78,7 +82,7 @@
         </select>
         <select
             bind:value={appState.searchState.selectedGroup}
-            onchange={() => { appState.searchState.selectedArtist = ''; appState.ui.setView('list'); appState.searchState.search(freeText()); }}
+            onchange={() => { appState.searchState.selectedArtist = ''; appState.ui.pushView('list'); appState.searchState.search(freeText()); }}
         >
             <option value="">Any Group</option>
             {#each appState.searchState.availableGroups as [group, count]}
