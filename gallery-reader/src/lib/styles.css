@@ -464,6 +464,7 @@ html, body {
 .view-layer.swipe-back {
     visibility: visible;
     pointer-events: none;
+    will-change: transform;
 }
 
 .view-layer.swipe-animating {

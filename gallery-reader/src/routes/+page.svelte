@@ -36,9 +36,9 @@
     id="view-favorites"
     class="view-layer"
     class:view-hidden={viewMode !== 'favorites' && backView !== 'favorites'}
-    class:swipe-back={backView === 'favorites' && isSwiping}
+    class:swipe-back={backView === 'favorites'}
     class:swipe-active={viewMode === 'favorites' && isSwiping}
-    class:swipe-animating={(backView === 'favorites' || viewMode === 'favorites') && swipeAnimating}
+    class:swipe-animating={backView === 'favorites' && swipeAnimating}
     style="{viewMode === 'favorites' && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >
     <FavoritesView />
@@ -48,9 +48,9 @@
     id="view-saved"
     class="view-layer"
     class:view-hidden={viewMode !== 'saved' && backView !== 'saved'}
-    class:swipe-back={backView === 'saved' && isSwiping}
+    class:swipe-back={backView === 'saved'}
     class:swipe-active={viewMode === 'saved' && isSwiping}
-    class:swipe-animating={(backView === 'saved' || viewMode === 'saved') && swipeAnimating}
+    class:swipe-animating={backView === 'saved' && swipeAnimating}
     style="{viewMode === 'saved' && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >
     <SavedSearchesView />
