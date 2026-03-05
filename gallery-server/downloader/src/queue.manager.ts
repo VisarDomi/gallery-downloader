@@ -17,19 +17,19 @@ try {
     }
 } catch (_) {}
 
-function saveQueue(currentUrl: string | null, queue: string[]) {
-    const data = { currentUrl, queue, savedAt: new Date().toISOString() };
+function saveQueue(currentUrl: string | null, queue: string[], paused: boolean = false) {
+    const data = { currentUrl, queue, paused, savedAt: new Date().toISOString() };
     try { fs.writeFileSync(QUEUE_FILE, JSON.stringify(data)); } catch (_) {}
 }
 
-function loadQueue(): { currentUrl: string | null; queue: string[] } | null {
+function loadQueue(): { currentUrl: string | null; queue: string[]; paused: boolean } | null {
     try {
         const raw = JSON.parse(fs.readFileSync(QUEUE_FILE, 'utf-8'));
         const urls: string[] = [];
         if (raw.currentUrl) urls.push(raw.currentUrl);
         if (Array.isArray(raw.queue)) urls.push(...raw.queue);
         if (urls.length === 0) return null;
-        return { currentUrl: null, queue: urls };
+        return { currentUrl: null, queue: urls, paused: !!raw.paused };
     } catch (_) { return null; }
 }
 
@@ -88,6 +88,7 @@ function deletePartialGallery(galleryId: string) {
 export interface QueueStatus {
     running: boolean;
     stopped: boolean;
+    paused: boolean;
     currentUrl: string;
     queue: string[];
 }
@@ -99,12 +100,14 @@ class QueueManager {
     private currentGalleryId: string | null = null;
     private isInterrupted: boolean = false;
     private stopSignal: boolean = false;
+    private pauseSignal: boolean = false;
     private preDownloadThumbCount: number = 0;
 
     public getStatus(): QueueStatus {
         return {
             running: !!this.currentChild,
             stopped: this.stopSignal,
+            paused: this.pauseSignal,
             currentUrl: this.currentUrl || '',
             queue: this.downloadQueue
         };
@@ -119,12 +122,12 @@ class QueueManager {
         if (this.downloadQueue.length === 0 && !this.currentUrl) {
             clearQueueFile();
         } else {
-            saveQueue(this.currentUrl, this.downloadQueue);
+            saveQueue(this.currentUrl, this.downloadQueue, this.pauseSignal);
         }
     }
 
     public processQueue() {
-        if (this.currentChild || this.stopSignal) return;
+        if (this.currentChild || this.stopSignal || this.pauseSignal) return;
 
         if (this.downloadQueue.length === 0) {
             this.currentUrl = null;
@@ -228,6 +231,19 @@ class QueueManager {
         }
     }
 
+    public pause() {
+        this.pauseSignal = true;
+        this.emitState();
+        socketService.emitLog('\n--- PAUSED (will finish current download) ---\n');
+    }
+
+    public resume() {
+        this.pauseSignal = false;
+        this.emitState();
+        socketService.emitLog('\n--- RESUMED ---\n');
+        this.processQueue();
+    }
+
     public cancel() {
         this.stopSignal = true;
         const partialId = this.currentGalleryId;
@@ -245,6 +261,7 @@ class QueueManager {
         this.downloadQueue = [];
         this.currentUrl = null;
         this.currentGalleryId = null;
+        this.pauseSignal = false;
         this.emitState();
     }
 
@@ -254,8 +271,13 @@ class QueueManager {
         console.log(`Restoring ${saved.queue.length} queued items from backup...`);
         this.downloadQueue = saved.queue;
         this.stopSignal = false;
+        this.pauseSignal = saved.paused;
         this.emitState();
-        this.processQueue();
+        if (saved.paused) {
+            console.log('Queue was paused — waiting for resume.');
+        } else {
+            this.processQueue();
+        }
     }
 }
 

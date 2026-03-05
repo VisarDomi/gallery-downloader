@@ -24,7 +24,9 @@
         button { padding: 8px 16px; border: none; cursor: pointer; font-weight: bold; color: white; border-radius: 4px; }
         .btn-red { background: #d32f2f; }
         .btn-blue { background: #1976d2; }
-        .btn-stop { background: #b71c1c; border: 1px solid #ff5252; float: right; font-size: 0.8rem; padding: 4px 10px; }
+        .btn-stop { background: #b71c1c; border: 1px solid #ff5252; font-size: 0.8rem; padding: 4px 10px; }
+        .btn-pause { background: #e65100; border: 1px solid #ff9800; font-size: 0.8rem; padding: 4px 10px; }
+        .btn-pause.paused { background: #2e7d32; border-color: #66bb6a; }
 
         #log-window {
             background: #000;
@@ -48,7 +50,10 @@
     <div class="panel panel-half">
         <div class="header-row">
             <h2 style="color: #e57373;">Immediate / Active</h2>
-            <button class="btn-stop" id="btn-cancel">STOP</button>
+            <div style="display:flex;gap:6px;">
+                <button class="btn-pause" id="btn-pause">PAUSE</button>
+                <button class="btn-stop" id="btn-cancel">STOP</button>
+            </div>
         </div>
         <textarea id="input-immediate" placeholder="Line 1: Starts NOW.&#10;Lines 2+: Added to FRONT."></textarea>
         <div class="btn-group">
@@ -84,12 +89,14 @@
     const btnInject = document.getElementById('btn-inject');
     const btnSave = document.getElementById('btn-save');
     const btnCancel = document.getElementById('btn-cancel');
+    const btnPause = document.getElementById('btn-pause');
 
     // State
     const MAX_LOG_LINES = 1000;
     let logs = [];
     let logBuffer = [];
     let isRunning = false;
+    let isPaused = false;
 
     // Focus Tracking
     let focusImmediate = false;
@@ -112,6 +119,7 @@
 
     socket.on('status_update', (status) => {
         isRunning = !status.stopped;
+        isPaused = status.paused;
 
         // Only update inputs if user isn't typing in them
         if (!focusImmediate && status.currentUrl) {
@@ -123,7 +131,9 @@
         }
 
         // UI Feedback
-        elImmediate.style.border = !isRunning ? "2px solid #d32f2f" : "1px solid #444";
+        elImmediate.style.border = !isRunning ? "2px solid #d32f2f" : isPaused ? "2px solid #ff9800" : "1px solid #444";
+        btnPause.textContent = isPaused ? 'RESUME' : 'PAUSE';
+        btnPause.classList.toggle('paused', isPaused);
     });
 
     // --- Log Loop (60fps) ---
@@ -166,6 +176,10 @@
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify({ urls: text })
         });
+    };
+
+    btnPause.onclick = async () => {
+        await fetch(isPaused ? '/resume' : '/pause', { method: 'POST' });
     };
 
     btnCancel.onclick = async () => {

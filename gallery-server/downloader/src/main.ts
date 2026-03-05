@@ -71,6 +71,16 @@ app.post('/immediate', (req, res) => {
     res.json({ status: 'ok' });
 });
 
+app.post('/pause', (_req, res) => {
+    queueManager.pause();
+    res.json({ status: 'paused' });
+});
+
+app.post('/resume', (_req, res) => {
+    queueManager.resume();
+    res.json({ status: 'resumed' });
+});
+
 app.post('/cancel', (_req, res) => {
     queueManager.cancel();
     res.json({ status: 'stopped' });
