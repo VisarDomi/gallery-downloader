@@ -432,6 +432,8 @@ html, body {
 .reader-page {
     width: 100%;
     display: block;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 100vw auto;
 }
 
 .reader-page img {
