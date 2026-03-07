@@ -53,8 +53,13 @@ export class ReaderState {
             const rawTarget = this.currentPageIndex * SPRITE_THUMB_WIDTH;
             this.ui.stripScrolls[galleryId] = rawTarget;
 
+            // Scope to the back view to avoid duplicate ID hits across list/favorites
+            const backView = this.ui.peekBack();
+            const viewId = backView ? `view-${backView}` : null;
+
             requestAnimationFrame(() => {
-                const row = document.getElementById(`gallery-${galleryId}`);
+                const container = viewId ? document.getElementById(viewId) : null;
+                const row = container?.querySelector(`#gallery-${galleryId}`) as HTMLElement | null;
                 const strip = row?.querySelector('.row-strip') as HTMLElement;
                 if (strip) {
                     const centered = rawTarget - (strip.clientWidth / 2) + (SPRITE_THUMB_WIDTH / 2);

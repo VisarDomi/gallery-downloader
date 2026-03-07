@@ -9,6 +9,7 @@ export interface SessionSnapshot {
     activeGalleryId?: number;
     searchQuery?: string;
     searchPage?: number;
+    favoritesPage?: number;
 }
 
 export function saveSession(snapshot: SessionSnapshot): void {

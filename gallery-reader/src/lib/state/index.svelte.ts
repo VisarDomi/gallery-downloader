@@ -68,7 +68,8 @@ class AppState {
         this.ui.pushView('list');
 
         setTimeout(() => {
-            const el = document.getElementById(`gallery-${galleryId}`);
+            const container = document.getElementById('view-list');
+            const el = container?.querySelector(`#gallery-${galleryId}`) as HTMLElement | null;
             if (el) {
                 el.scrollIntoView({ behavior: 'auto', block: 'center' });
                 el.classList.add('replay-highlight');
@@ -91,6 +92,7 @@ class AppState {
             activeGalleryId: this.reader.activeGallery?.gallery_id,
             searchQuery: this.searchState.fullQuery || undefined,
             searchPage: this.searchState.currentPage || undefined,
+            favoritesPage: this.favorites.currentPage || undefined,
         });
     }
 
@@ -123,6 +125,7 @@ class AppState {
                     const ok = await this.reader.restoreReader(snap.activeGalleryId, position);
                     if (ok) {
                         this.ui.setViewDirect('reader', snap.viewStack);
+                        await this.prepareBackViews(snap);
                         this.persistSession();
                         return;
                     }
@@ -132,7 +135,10 @@ class AppState {
 
             case 'favorites':
                 this.ui.setViewDirect('favorites', snap.viewStack);
-                this.favorites.loadGalleries();
+                await this.favorites.loadGalleries();
+                if (snap.favoritesPage) {
+                    this.favorites.currentPage = snap.favoritesPage;
+                }
                 this.persistSession();
                 return;
 
@@ -147,6 +153,42 @@ class AppState {
         }
 
         this.persistSession();
+    }
+
+    /**
+     * Pre-position back views so swipe-back reveals the correct scroll position.
+     * During normal usage the DOM owns scroll position (views stay mounted).
+     * On restore the DOM is fresh — derive position from the active gallery.
+     */
+    private async prepareBackViews(snap: import('./session.js').SessionSnapshot) {
+        if (!snap.activeGalleryId) return;
+
+        const backView = snap.viewStack[snap.viewStack.length - 1];
+
+        if (backView === 'favorites') {
+            await this.favorites.loadGalleries();
+            // Derive the correct page from the gallery's position in the list
+            const idx = this.favorites.favoriteGalleries.findIndex(
+                g => g.gallery_id === snap.activeGalleryId
+            );
+            if (idx >= 0) {
+                this.favorites.currentPage = Math.floor(idx / PAGE_SIZE);
+            }
+            this.scrollViewToGallery('view-favorites', snap.activeGalleryId);
+        } else if (backView === 'list') {
+            this.scrollViewToGallery('view-list', snap.activeGalleryId);
+        }
+    }
+
+    /** Scroll a view container to center a gallery row. Scoped to avoid duplicate ID issues. */
+    private scrollViewToGallery(viewId: string, galleryId: number) {
+        requestAnimationFrame(() => {
+            const container = document.getElementById(viewId);
+            const el = container?.querySelector(`#gallery-${galleryId}`);
+            if (el) {
+                el.scrollIntoView({ block: 'center' });
+            }
+        });
     }
 
     // -- Resume detection --
