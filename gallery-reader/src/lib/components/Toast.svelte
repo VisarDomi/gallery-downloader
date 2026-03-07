@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
 </script>
 
 {#if appState.toast.items.length > 0}

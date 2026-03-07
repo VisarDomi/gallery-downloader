@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, setContext } from 'svelte';
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
     import ListView from '$lib/views/ListView.svelte';
     import ReaderView from '$lib/views/ReaderView.svelte';
     import SavedSearchesView from '$lib/views/SavedSearchesView.svelte';

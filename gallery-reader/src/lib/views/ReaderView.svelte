@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import Reader from '$lib/components/Reader.svelte';
 
@@ -7,7 +7,7 @@
     const startPage = $derived(appState.reader.currentPageIndex);
 
     function handleClose() {
-        appState.reader.closeReader(appState.ui);
+        appState.reader.closeReader();
     }
 </script>
 

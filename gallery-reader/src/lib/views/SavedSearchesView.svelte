@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
     import SavedSearches from '$lib/components/SavedSearches.svelte';

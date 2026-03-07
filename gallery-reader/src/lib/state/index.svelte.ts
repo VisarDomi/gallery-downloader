@@ -1,0 +1,190 @@
+import { PAGE_SIZE, RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../config.js';
+import * as api from '../services/api.js';
+import { ToastState } from './toast.svelte.js';
+import { UIState } from './ui.svelte.js';
+import { SearchState } from './search.svelte.js';
+import { ReaderState } from './reader.svelte.js';
+import { FavoritesState } from './favorites.svelte.js';
+import { SavedState } from './saved.svelte.js';
+import { DeleteState } from './delete.svelte.js';
+import { DownloaderState } from './downloader.svelte.js';
+import { saveSession, loadSession, clearSession } from './session.js';
+
+class AppState {
+    toast = new ToastState();
+    ui = new UIState();
+    searchState = new SearchState();
+    favorites = new FavoritesState();
+    saved = new SavedState();
+    reader: ReaderState;
+    delete_: DeleteState;
+    downloader: DownloaderState;
+
+    private lastTick = Date.now();
+    private tickInterval: ReturnType<typeof setInterval> | undefined;
+
+    constructor() {
+        this.reader = new ReaderState(this.ui, {
+            onBeforeOpen: () => this.ui.abortAllSprites(),
+        });
+        this.downloader = new DownloaderState(this.toast);
+        this.delete_ = new DeleteState({
+            favorites: this.favorites,
+            reader: this.reader,
+            search: this.searchState,
+        });
+        this.ui.onViewChange = () => this.persistSession();
+    }
+
+    async init() {
+        await Promise.all([
+            this.saved.init(),
+            this.favorites.init(),
+            this.reader.loadProgress(),
+        ]);
+
+        api.refreshIndex().catch(console.error);
+
+        await this.searchState.loadFilterOptions();
+
+        await this.restoreSession();
+
+        this.setupResumeDetection();
+    }
+
+    // -- Cross-domain orchestration --
+
+    async replaySearch(galleryId: number) {
+        const query = this.favorites.getQuery(galleryId);
+        if (!query) return;
+
+        await this.searchState.restoreFromQuery(query);
+
+        const idx = this.searchState.allGalleries.findIndex(g => g.gallery_id === galleryId);
+        if (idx >= 0) {
+            this.searchState.currentPage = Math.floor(idx / PAGE_SIZE);
+        }
+
+        this.ui.pushView('list');
+
+        setTimeout(() => {
+            const el = document.getElementById(`gallery-${galleryId}`);
+            if (el) {
+                el.scrollIntoView({ behavior: 'auto', block: 'center' });
+                el.classList.add('replay-highlight');
+                setTimeout(() => el.classList.remove('replay-highlight'), 1500);
+            }
+        }, 100);
+    }
+
+    openFavorites() {
+        this.ui.pushView('favorites');
+        this.favorites.loadGalleries();
+    }
+
+    // -- Session persistence --
+
+    private persistSession() {
+        saveSession({
+            viewMode: this.ui.viewMode,
+            viewStack: this.ui.viewStack,
+            activeGalleryId: this.reader.activeGallery?.gallery_id,
+            activeGalleryPage: this.reader.currentPageIndex,
+            searchQuery: this.searchState.fullQuery || undefined,
+            searchPage: this.searchState.currentPage || undefined,
+        });
+    }
+
+    private async restoreSession() {
+        const snap = loadSession();
+        if (!snap) {
+            await this.searchState.search('');
+            return;
+        }
+
+        clearSession();
+
+        // Restore search if we had one
+        if (snap.searchQuery) {
+            await this.searchState.restoreFromQuery(snap.searchQuery);
+            if (snap.searchPage) {
+                this.searchState.currentPage = snap.searchPage;
+            }
+        } else {
+            await this.searchState.search('');
+        }
+
+        // Restore view based on saved mode
+        switch (snap.viewMode) {
+            case 'reader':
+                if (snap.activeGalleryId != null) {
+                    const page = snap.activeGalleryPage ?? 0;
+                    const ok = await this.reader.restoreReader(snap.activeGalleryId, page);
+                    if (ok) {
+                        this.ui.setViewDirect('reader', snap.viewStack);
+                        this.persistSession();
+                        return;
+                    }
+                }
+                // Fallback to list
+                break;
+
+            case 'favorites':
+                this.ui.setViewDirect('favorites', snap.viewStack);
+                this.favorites.loadGalleries();
+                this.persistSession();
+                return;
+
+            case 'saved':
+                this.ui.setViewDirect('saved', snap.viewStack);
+                this.persistSession();
+                return;
+
+            case 'list':
+                // Already restored search above, just stay in list
+                break;
+        }
+
+        this.persistSession();
+    }
+
+    // -- Resume detection --
+
+    private setupResumeDetection() {
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') {
+                this.handleResume();
+            }
+        });
+
+        // iOS sentinel: detect deep sleep via tick drift
+        this.lastTick = Date.now();
+        this.tickInterval = setInterval(() => {
+            const now = Date.now();
+            const drift = now - this.lastTick;
+            this.lastTick = now;
+            if (drift > 3000) {
+                this.handleResume();
+            }
+        }, 1000);
+    }
+
+    private handleResume() {
+        const snap = loadSession();
+        if (!snap) return;
+
+        const elapsed = Date.now() - this.lastTick;
+
+        if (elapsed > DEEP_SLEEP_MS) {
+            this.toast.show('Session expired, refreshing...');
+            this.searchState.search(this.searchState.currentQuery);
+            return;
+        }
+
+        if (elapsed > RESUME_RECOVERY_MS) {
+            this.searchState.search(this.searchState.currentQuery);
+        }
+    }
+}
+
+export const appState = new AppState();

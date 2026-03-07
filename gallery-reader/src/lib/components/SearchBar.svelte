@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
 
     let inputValue = $state(appState.searchState.fullQuery);
 
@@ -35,7 +35,7 @@
         if (appState.ui.viewMode === 'favorites') {
             appState.ui.popView();
         } else {
-            appState.favorites.loadView();
+            appState.openFavorites();
         }
     }
 

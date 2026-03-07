@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
     import GalleryList from '$lib/components/GalleryList.svelte';
     import Pagination from '$lib/components/Pagination.svelte';

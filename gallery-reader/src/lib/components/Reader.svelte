@@ -1,6 +1,6 @@
 <script lang="ts">
     import { untrack, getContext } from 'svelte';
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
     import { API } from '$lib/config.js';
     import type { Gallery } from '$lib/types.js';
 

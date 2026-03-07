@@ -1,7 +1,7 @@
 <script lang="ts">
     import type { Gallery } from '$lib/types.js';
     import * as api from '$lib/services/api.js';
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
 
     let { galleryId, onClose, onSearchFilter }: {
         galleryId: number;

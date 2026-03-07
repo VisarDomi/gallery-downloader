@@ -1,6 +1,6 @@
 <script lang="ts">
     import { onMount, onDestroy } from 'svelte';
-    import { appState } from '$lib/state.svelte.js';
+    import { appState } from '$lib/state/index.svelte.js';
     import { API, SPRITE_THUMB_WIDTH, SPRITE_THUMB_HEIGHT, MAX_THUMBS_PER_STRIP } from '$lib/config.js';
     import type { GalleryListItem } from '$lib/types.js';
     import InfoModal from './InfoModal.svelte';
@@ -105,15 +105,15 @@
         const rect = stripContainer.getBoundingClientRect();
         const clickX = e.clientX - rect.left + stripContainer.scrollLeft;
         const pageIndex = Math.floor(clickX / SPRITE_THUMB_WIDTH);
-        appState.reader.openReader(gallery, pageIndex, appState.ui);
+        appState.reader.openReader(gallery, pageIndex);
     }
 
     function handleResume() {
-        appState.reader.openReader(gallery, progress, appState.ui);
+        appState.reader.openReader(gallery, progress);
     }
 
     function handleReplay() {
-        appState.favorites.replaySearch(id);
+        appState.replaySearch(id);
     }
 
     function handleInfo() {
@@ -121,7 +121,7 @@
     }
 
     function handleFav() {
-        appState.favorites.toggle(id, appState.searchState.fullQuery);
+        appState.favorites.toggle(id, appState.searchState.fullQuery, appState.ui.viewMode === 'favorites');
     }
 
     // Revoke blob URLs and abort in-flight fetches when this row leaves the DOM
@@ -143,7 +143,7 @@
 </script>
 
 <div class="manga-row" id="gallery-{id}">
-    <div class="row-strip" role="button" tabindex="0" bind:this={stripContainer} onclick={handleStripClick} onkeydown={(e) => { if (e.key === 'Enter') appState.reader.openReader(gallery, 0, appState.ui); }} onscroll={handleStripScroll}>
+    <div class="row-strip" role="button" tabindex="0" bind:this={stripContainer} onclick={handleStripClick} onkeydown={(e) => { if (e.key === 'Enter') appState.reader.openReader(gallery, 0); }} onscroll={handleStripScroll}>
         {#each Array(stripCount) as _, i}
             {@const thumbsInStrip = Math.min(MAX_THUMBS_PER_STRIP, thumbCount - i * MAX_THUMBS_PER_STRIP)}
             <img
