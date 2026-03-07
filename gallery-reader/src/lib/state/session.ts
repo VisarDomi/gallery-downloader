@@ -7,7 +7,6 @@ export interface SessionSnapshot {
     viewMode: ViewMode;
     viewStack: ViewMode[];
     activeGalleryId?: number;
-    activeGalleryPage?: number;
     searchQuery?: string;
     searchPage?: number;
 }

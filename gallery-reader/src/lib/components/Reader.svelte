@@ -2,26 +2,26 @@
     import { untrack, getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { API } from '$lib/config.js';
-    import type { Gallery } from '$lib/types.js';
+    import type { Gallery, PagePosition } from '$lib/types.js';
 
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
 
     let {
         gallery,
-        startPage,
+        startPosition,
         onClose,
     }: {
         gallery: Gallery | null;
-        startPage: number;
+        startPosition: PagePosition;
         onClose: () => void;
     } = $props();
 
     const pageCount = $derived(gallery?.count ?? 0);
     let pageElements: HTMLElement[] = [];
-    let progressObserver: IntersectionObserver | undefined;
     let preloadObserver: IntersectionObserver | undefined;
     let suppressSave = true;
     let suppressTimer: ReturnType<typeof setTimeout>;
+    let scrollRafId: number | undefined;
 
     // Blob URL memory management
     let blobUrls = new Map<number, string>();
@@ -31,7 +31,6 @@
     function registerPage(node: HTMLElement, index: () => number) {
         const idx = index();
         pageElements[idx] = node;
-        progressObserver?.observe(node);
         preloadObserver?.observe(node);
     }
 
@@ -59,12 +58,32 @@
             .finally(() => loadingPages.delete(pageIndex));
     }
 
-    // Reactive: when gallery changes, set up observers and scroll to start page
+    function handleReaderScroll(viewReader: HTMLElement, g: Gallery) {
+        if (scrollRafId != null) return;
+        scrollRafId = requestAnimationFrame(() => {
+            scrollRafId = undefined;
+            if (suppressSave || !g) return;
+            const scrollTop = viewReader.scrollTop;
+            let idx = 0;
+            for (let i = 0; i < pageElements.length; i++) {
+                const el = pageElements[i];
+                if (!el) continue;
+                if (el.offsetTop + el.offsetHeight > scrollTop) { idx = i; break; }
+            }
+            const el = pageElements[idx];
+            const fraction = el
+                ? Math.max(0, Math.min(1, (scrollTop - el.offsetTop) / el.offsetHeight))
+                : 0;
+            appState.reader.saveProgress(g.gallery_id, { pageIndex: idx, fraction });
+        });
+    }
+
+    // Reactive: when gallery changes, set up observers and scroll to start position
     $effect(() => {
         const g = gallery;
         if (!g) return;
 
-        const initialPage = untrack(() => startPage);
+        const initialPosition = untrack(() => startPosition);
 
         // Clean up previous gallery's resources
         revokeAll();
@@ -76,23 +95,6 @@
         pageElements.length = g.count;
 
         const viewReader = getReaderRoot();
-
-        // Progress tracking observer (unchanged behavior)
-        progressObserver?.disconnect();
-        const progObs = new IntersectionObserver(
-            (entries) => {
-                for (const entry of entries) {
-                    if (entry.isIntersecting && entry.intersectionRatio >= 0.5) {
-                        const idx = pageElements.indexOf(entry.target as HTMLElement);
-                        if (idx >= 0 && !suppressSave) {
-                            appState.reader.saveProgress(g.gallery_id, idx);
-                        }
-                    }
-                }
-            },
-            { threshold: 0.5, root: viewReader }
-        );
-        progressObserver = progObs;
 
         // Preload observer — triggers fetch when pages are within 1 viewport of visible area
         preloadObserver?.disconnect();
@@ -111,27 +113,38 @@
 
         for (const el of pageElements) {
             if (el) {
-                progObs.observe(el);
                 preObs.observe(el);
             }
         }
 
         // Eagerly load start page (don't wait for observer)
-        loadPage(g, initialPage, signal);
+        loadPage(g, initialPosition.pageIndex, signal);
 
-        // Scroll to start page within the reader's own scroll container
+        // Scroll handler for progress tracking
+        const onScroll = () => handleReaderScroll(viewReader!, g);
+        viewReader?.addEventListener('scroll', onScroll, { passive: true });
+
+        // Scroll to start position within the reader's own scroll container
         requestAnimationFrame(() => {
-            if (viewReader) viewReader.scrollTop = 0;
-            if (initialPage > 0) {
-                pageElements[initialPage]?.scrollIntoView();
+            if (viewReader && initialPosition.pageIndex > 0) {
+                const el = pageElements[initialPosition.pageIndex];
+                if (el) {
+                    viewReader.scrollTop = el.offsetTop + initialPosition.fraction * el.offsetHeight;
+                }
+            } else if (viewReader) {
+                viewReader.scrollTop = 0;
             }
             suppressTimer = setTimeout(() => { suppressSave = false; }, 500);
         });
 
         return () => {
             revokeAll();
-            progObs.disconnect();
             preObs.disconnect();
+            viewReader?.removeEventListener('scroll', onScroll);
+            if (scrollRafId != null) {
+                cancelAnimationFrame(scrollRafId);
+                scrollRafId = undefined;
+            }
             clearTimeout(suppressTimer);
         };
     });
@@ -139,12 +152,10 @@
     // Disconnect observers during swipe to prevent intersection recalculations
     $effect(() => {
         if (appState.ui.isSwiping) {
-            progressObserver?.disconnect();
             preloadObserver?.disconnect();
         } else if (gallery) {
             for (const el of pageElements) {
                 if (el) {
-                    progressObserver?.observe(el);
                     preloadObserver?.observe(el);
                 }
             }

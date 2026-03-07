@@ -4,7 +4,7 @@
     import Reader from '$lib/components/Reader.svelte';
 
     const gallery = $derived(appState.reader.activeGallery);
-    const startPage = $derived(appState.reader.currentPageIndex);
+    const startPosition = $derived(appState.reader.currentPosition);
 
     function handleClose() {
         appState.reader.closeReader();
@@ -12,5 +12,5 @@
 </script>
 
 <div use:swipeBack={{ onClose: handleClose, ui: appState.ui }}>
-    <Reader {gallery} {startPage} onClose={handleClose} />
+    <Reader {gallery} {startPosition} onClose={handleClose} />
 </div>

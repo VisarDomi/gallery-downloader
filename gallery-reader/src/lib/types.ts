@@ -18,4 +18,9 @@ export interface SearchResponse {
     items: GalleryListItem[];
 }
 
+export interface PagePosition {
+    pageIndex: number;
+    fraction: number; // 0.0 = top of page, 1.0 = bottom of page
+}
+
 export type ViewMode = 'list' | 'reader' | 'saved' | 'favorites';

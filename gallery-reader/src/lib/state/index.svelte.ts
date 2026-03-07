@@ -89,7 +89,6 @@ class AppState {
             viewMode: this.ui.viewMode,
             viewStack: this.ui.viewStack,
             activeGalleryId: this.reader.activeGallery?.gallery_id,
-            activeGalleryPage: this.reader.currentPageIndex,
             searchQuery: this.searchState.fullQuery || undefined,
             searchPage: this.searchState.currentPage || undefined,
         });
@@ -118,8 +117,10 @@ class AppState {
         switch (snap.viewMode) {
             case 'reader':
                 if (snap.activeGalleryId != null) {
-                    const page = snap.activeGalleryPage ?? 0;
-                    const ok = await this.reader.restoreReader(snap.activeGalleryId, page);
+                    // IDB progress is the single owner of persistent position data —
+                    // always fresher than the session snapshot (which only updates on view changes)
+                    const position = this.reader.getProgress(snap.activeGalleryId);
+                    const ok = await this.reader.restoreReader(snap.activeGalleryId, position);
                     if (ok) {
                         this.ui.setViewDirect('reader', snap.viewStack);
                         this.persistSession();

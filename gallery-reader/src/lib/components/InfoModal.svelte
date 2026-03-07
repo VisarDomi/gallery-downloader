@@ -1,4 +1,5 @@
 <script lang="ts">
+    import { onMount } from 'svelte';
     import type { Gallery } from '$lib/types.js';
     import * as api from '$lib/services/api.js';
     import { appState } from '$lib/state/index.svelte.js';
@@ -12,11 +13,15 @@
     let gallery = $state<Gallery | null>(null);
     let deleting = $state(false);
 
-    $effect(() => {
-        api.getGallery(galleryId).then(g => gallery = g);
-    });
-
     const title = $derived(gallery?.title || 'No Title');
+
+    onMount(() => {
+        api.getGallery(galleryId).then(g => gallery = g);
+        document.body.style.overflow = 'hidden';
+        return () => {
+            document.body.style.overflow = '';
+        };
+    });
 
     function handleBackdropClick(e: MouseEvent) {
         if (e.target === e.currentTarget) onClose();
@@ -39,13 +44,6 @@
             deleting = false;
         }
     }
-
-    $effect(() => {
-        document.body.style.overflow = 'hidden';
-        return () => {
-            document.body.style.overflow = '';
-        };
-    });
 </script>
 
 <div class="modal-backdrop" role="button" tabindex="-1" onclick={handleBackdropClick} onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}>

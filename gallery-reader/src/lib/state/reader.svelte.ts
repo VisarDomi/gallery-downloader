@@ -1,28 +1,38 @@
 import { SPRITE_THUMB_WIDTH } from '../config.js';
-import type { Gallery, GalleryListItem } from '../types.js';
+import type { Gallery, GalleryListItem, PagePosition } from '../types.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
 import type { UIState } from './ui.svelte.js';
 
 export class ReaderState {
     activeGallery = $state<Gallery | null>(null);
-    currentPageIndex = $state(0);
-    progress = $state<Record<number, number>>({});
+    currentPosition = $state<PagePosition>({ pageIndex: 0, fraction: 0 });
+    progress = $state<Record<number, PagePosition>>({});
 
     private ui: UIState;
     private onBeforeOpen?: () => void;
+    private debounceTimers = new Map<number, ReturnType<typeof setTimeout>>();
+    private _lastSyncedPageIndex = -1;
 
     constructor(ui: UIState, opts?: { onBeforeOpen?: () => void }) {
         this.ui = ui;
         this.onBeforeOpen = opts?.onBeforeOpen;
     }
 
+    get currentPageIndex(): number {
+        return this.currentPosition.pageIndex;
+    }
+
     async loadProgress() {
         this.progress = await db.getAllProgress();
     }
 
-    getProgress(galleryId: number): number {
-        return this.progress[galleryId] ?? 0;
+    getProgress(galleryId: number): PagePosition {
+        return this.progress[galleryId] ?? { pageIndex: 0, fraction: 0 };
+    }
+
+    getProgressIndex(galleryId: number): number {
+        return this.progress[galleryId]?.pageIndex ?? 0;
     }
 
     async openReader(item: GalleryListItem, startPage: number) {
@@ -30,8 +40,10 @@ export class ReaderState {
 
         const gallery = await api.getGallery(item.gallery_id);
         this.activeGallery = gallery;
-        this.currentPageIndex = startPage;
-        this.saveProgress(gallery.gallery_id, startPage);
+        const position: PagePosition = { pageIndex: startPage, fraction: 0 };
+        this._lastSyncedPageIndex = -1;
+        this.currentPosition = position;
+        this.saveProgress(gallery.gallery_id, position);
         this.ui.pushView('reader');
     }
 
@@ -54,10 +66,21 @@ export class ReaderState {
         this.ui.popView();
     }
 
-    async saveProgress(galleryId: number, pageIndex: number) {
-        this.progress[galleryId] = pageIndex;
-        this.currentPageIndex = pageIndex;
-        await db.setProgress(galleryId, pageIndex);
+    saveProgress(galleryId: number, position: PagePosition) {
+        // Only write $state when page actually changes
+        if (position.pageIndex !== this._lastSyncedPageIndex) {
+            this._lastSyncedPageIndex = position.pageIndex;
+            this.progress[galleryId] = position;
+            this.currentPosition = position;
+        }
+
+        // Debounce IDB writes (250ms trailing edge)
+        const existing = this.debounceTimers.get(galleryId);
+        if (existing != null) clearTimeout(existing);
+        this.debounceTimers.set(galleryId, setTimeout(() => {
+            this.debounceTimers.delete(galleryId);
+            db.setProgress(galleryId, position);
+        }, 250));
     }
 
     removeProgress(ids: Set<number>) {
@@ -68,11 +91,12 @@ export class ReaderState {
         this.progress = newProgress;
     }
 
-    async restoreReader(galleryId: number, startPage: number): Promise<boolean> {
+    async restoreReader(galleryId: number, position: PagePosition): Promise<boolean> {
         try {
             const gallery = await api.getGallery(galleryId);
             this.activeGallery = gallery;
-            this.currentPageIndex = startPage;
+            this._lastSyncedPageIndex = -1;
+            this.currentPosition = position;
             return true;
         } catch {
             return false;

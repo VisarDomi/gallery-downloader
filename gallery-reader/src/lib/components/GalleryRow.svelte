@@ -25,7 +25,7 @@
     const stripCount = $derived(Math.ceil(thumbCount / MAX_THUMBS_PER_STRIP));
 
     const isFav = $derived(appState.favorites.favoriteIds.has(id));
-    const progress = $derived(appState.reader.getProgress(id));
+    const progressIndex = $derived(appState.reader.getProgressIndex(id));
     const savedQuery = $derived(appState.favorites.favoriteQueries[id]);
 
     async function fetchSprite(img: HTMLImageElement, stripIdx: number, signal: AbortSignal) {
@@ -109,7 +109,7 @@
     }
 
     function handleResume() {
-        appState.reader.openReader(gallery, progress);
+        appState.reader.openReader(gallery, progressIndex);
     }
 
     function handleReplay() {
@@ -157,8 +157,8 @@
 
     <div class="row-title-overlay">
         <div class="row-actions">
-            {#if progress > 0}
-                <button class="row-action-btn" onclick={handleResume} title="Resume pg {progress + 1}">&#9654;</button>
+            {#if progressIndex > 0}
+                <button class="row-action-btn" onclick={handleResume} title="Resume pg {progressIndex + 1}">&#9654;</button>
             {/if}
             {#if allowReplay && savedQuery}
                 <button class="row-action-btn" onclick={handleReplay} title="Replay: {savedQuery}">&#10227;</button>

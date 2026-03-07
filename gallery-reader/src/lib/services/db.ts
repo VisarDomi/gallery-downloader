@@ -1,9 +1,12 @@
 const DB_NAME = 'hitomi-reader';
 const DB_VERSION = 2;
 
+import type { PagePosition } from '../types.js';
+
 interface ProgressEntry {
     galleryId: number;
     pageIndex: number;
+    fraction?: number;
 }
 
 interface FavoriteEntry {
@@ -61,35 +64,38 @@ function openDB(): Promise<IDBDatabase> {
 }
 
 // Progress
-export async function getProgress(galleryId: number): Promise<number> {
+export async function getProgress(galleryId: number): Promise<PagePosition> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('progress', 'readonly');
         const req = tx.objectStore('progress').get(galleryId);
-        req.onsuccess = () => resolve(req.result?.pageIndex ?? 0);
-        req.onerror = () => resolve(0);
+        req.onsuccess = () => {
+            const entry = req.result as ProgressEntry | undefined;
+            resolve(entry ? { pageIndex: entry.pageIndex, fraction: entry.fraction ?? 0 } : { pageIndex: 0, fraction: 0 });
+        };
+        req.onerror = () => resolve({ pageIndex: 0, fraction: 0 });
     });
 }
 
-export async function setProgress(galleryId: number, pageIndex: number): Promise<void> {
+export async function setProgress(galleryId: number, position: PagePosition): Promise<void> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('progress', 'readwrite');
-        tx.objectStore('progress').put({ galleryId, pageIndex } satisfies ProgressEntry);
+        tx.objectStore('progress').put({ galleryId, pageIndex: position.pageIndex, fraction: position.fraction } satisfies ProgressEntry);
         tx.oncomplete = () => resolve();
         tx.onerror = () => resolve();
     });
 }
 
-export async function getAllProgress(): Promise<Record<number, number>> {
+export async function getAllProgress(): Promise<Record<number, PagePosition>> {
     const db = await openDB();
     return new Promise((resolve) => {
         const tx = db.transaction('progress', 'readonly');
         const req = tx.objectStore('progress').getAll();
         req.onsuccess = () => {
-            const map: Record<number, number> = {};
+            const map: Record<number, PagePosition> = {};
             for (const entry of req.result as ProgressEntry[]) {
-                map[entry.galleryId] = entry.pageIndex;
+                map[entry.galleryId] = { pageIndex: entry.pageIndex, fraction: entry.fraction ?? 0 };
             }
             resolve(map);
         };
