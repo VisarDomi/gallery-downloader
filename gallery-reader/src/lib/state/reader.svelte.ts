@@ -48,25 +48,6 @@ export class ReaderState {
     }
 
     closeReader() {
-        if (this.activeGallery) {
-            const galleryId = this.activeGallery.gallery_id;
-            const rawTarget = this.currentPageIndex * SPRITE_THUMB_WIDTH;
-            this.ui.stripScrolls[galleryId] = rawTarget;
-
-            // Scope to the back view to avoid duplicate ID hits across list/favorites
-            const backView = this.ui.peekBack();
-            const viewId = backView ? `view-${backView}` : null;
-
-            requestAnimationFrame(() => {
-                const container = viewId ? document.getElementById(viewId) : null;
-                const row = container?.querySelector(`#gallery-${galleryId}`) as HTMLElement | null;
-                const strip = row?.querySelector('.row-strip') as HTMLElement;
-                if (strip) {
-                    const centered = rawTarget - (strip.clientWidth / 2) + (SPRITE_THUMB_WIDTH / 2);
-                    strip.scrollLeft = Math.max(0, centered);
-                }
-            });
-        }
         this.activeGallery = null;
         this.ui.popView();
     }
@@ -77,6 +58,7 @@ export class ReaderState {
             this._lastSyncedPageIndex = position.pageIndex;
             this.progress[galleryId] = position;
             this.currentPosition = position;
+            this.syncStripScroll(galleryId, position.pageIndex);
         }
 
         // Debounce IDB writes (250ms trailing edge)
@@ -94,6 +76,24 @@ export class ReaderState {
             delete newProgress[id];
         }
         this.progress = newProgress;
+    }
+
+    /** Silently scroll the thumbnail strip in the hidden back view to match current page. */
+    syncStripScroll(galleryId: number, pageIndex: number) {
+        const rawTarget = pageIndex * SPRITE_THUMB_WIDTH;
+        this.ui.stripScrolls[galleryId] = rawTarget;
+
+        const backView = this.ui.peekBack();
+        const viewId = backView ? `view-${backView}` : null;
+        if (!viewId) return;
+
+        const container = document.getElementById(viewId);
+        const row = container?.querySelector(`#gallery-${galleryId}`) as HTMLElement | null;
+        const strip = row?.querySelector('.row-strip') as HTMLElement;
+        if (strip) {
+            const centered = rawTarget - (strip.clientWidth / 2) + (SPRITE_THUMB_WIDTH / 2);
+            strip.scrollLeft = Math.max(0, centered);
+        }
     }
 
     async restoreReader(galleryId: number, position: PagePosition): Promise<boolean> {

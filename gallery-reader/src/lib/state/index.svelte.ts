@@ -180,14 +180,18 @@ class AppState {
         }
     }
 
-    /** Scroll a view container to center a gallery row. Scoped to avoid duplicate ID issues. */
+    /** Scroll a view container to center a gallery row, and sync its thumbnail strip. */
     private scrollViewToGallery(viewId: string, galleryId: number) {
+        const pageIndex = this.reader.getProgress(galleryId).pageIndex;
         requestAnimationFrame(() => {
             const container = document.getElementById(viewId);
             const el = container?.querySelector(`#gallery-${galleryId}`);
             if (el) {
                 el.scrollIntoView({ block: 'center' });
             }
+            // Also sync the strip to current page (reader.syncStripScroll needs
+            // peekBack() which requires the reader view to be active — do it directly)
+            this.reader.syncStripScroll(galleryId, pageIndex);
         });
     }
 
