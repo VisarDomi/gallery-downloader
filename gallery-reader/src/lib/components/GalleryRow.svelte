@@ -13,6 +13,8 @@
         allowReplay?: boolean;
     } = $props();
 
+    const scheduleIdle = globalThis.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 0));
+
     let stripContainer: HTMLDivElement | undefined = $state();
     let showInfoModal = $state(false);
 
@@ -85,12 +87,16 @@
     });
 
     // Abort sprite fetches when reader opens (frees HTTP connections for images),
-    // re-fetch missing strips when reader closes
+    // re-fetch missing strips when reader closes (deferred to idle to avoid fetch storm)
     $effect(() => {
         if (appState.ui.viewMode === 'reader') {
             abortController?.abort();
         } else if (stripContainer) {
-            fetchSprites();
+            scheduleIdle(() => {
+                if (stripContainer && appState.ui.viewMode !== 'reader') {
+                    fetchSprites();
+                }
+            });
         }
     });
 

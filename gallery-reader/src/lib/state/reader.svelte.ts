@@ -4,6 +4,8 @@ import * as api from '../services/api.js';
 import * as db from '../services/db.js';
 import type { UIState } from './ui.svelte.js';
 
+const scheduleIdle = globalThis.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 0));
+
 export class ReaderState {
     activeGallery = $state<Gallery | null>(null);
     currentPosition = $state<PagePosition>({ pageIndex: 0, fraction: 0 });
@@ -48,8 +50,13 @@ export class ReaderState {
     }
 
     closeReader() {
-        this.activeGallery = null;
+        // Two-phase close: pop view immediately (fast, no DOM churn),
+        // then null the gallery on idle (deferred Drop — destroys 100+ page nodes
+        // and revokes blob URLs off the critical path).
         this.ui.popView();
+        scheduleIdle(() => {
+            this.activeGallery = null;
+        });
     }
 
     saveProgress(galleryId: number, position: PagePosition) {

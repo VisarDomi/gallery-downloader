@@ -17,13 +17,23 @@
     setContext('readerRoot', () => readerRoot);
 
     const viewMode = $derived(appState.ui.viewMode);
+    const isSwiping = $derived(appState.ui.isSwiping);
+    const swipeAnimating = $derived(appState.ui.swipeAnimating);
+    const swipeProgress = $derived(appState.ui.swipeProgress);
+    const backView = $derived(isSwiping ? appState.ui.peekBack() : null);
+
+    const inReader = $derived(viewMode === 'reader');
+    const inFavorites = $derived(viewMode === 'favorites');
+    const inSaved = $derived(viewMode === 'saved');
 </script>
 
 <!-- All 4 views always mounted as fixed scroll containers. Only visibility toggles. -->
 <div
     id="view-list"
     class="view-layer"
-    class:view-hidden={viewMode !== 'list'}
+    class:view-hidden={viewMode !== 'list' && backView !== 'list'}
+    class:swipe-back={backView === 'list'}
+    class:swipe-animating={backView === 'list' && swipeAnimating}
 >
     <ListView />
 </div>
@@ -31,7 +41,11 @@
 <div
     id="view-favorites"
     class="view-layer"
-    class:view-hidden={viewMode !== 'favorites'}
+    class:view-hidden={viewMode !== 'favorites' && backView !== 'favorites'}
+    class:swipe-back={backView === 'favorites'}
+    class:swipe-animating={backView === 'favorites' && swipeAnimating}
+    class:swipe-active={inFavorites && isSwiping}
+    style="{inFavorites && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >
     <FavoritesView />
 </div>
@@ -39,7 +53,11 @@
 <div
     id="view-saved"
     class="view-layer"
-    class:view-hidden={viewMode !== 'saved'}
+    class:view-hidden={viewMode !== 'saved' && backView !== 'saved'}
+    class:swipe-back={backView === 'saved'}
+    class:swipe-animating={backView === 'saved' && swipeAnimating}
+    class:swipe-active={inSaved && isSwiping}
+    style="{inSaved && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
 >
     <SavedSearchesView />
 </div>
@@ -47,7 +65,10 @@
 <div
     id="view-reader"
     class="view-layer"
-    class:view-hidden={viewMode !== 'reader'}
+    class:view-hidden={!inReader}
+    class:swipe-active={inReader && isSwiping}
+    class:swipe-animating={inReader && swipeAnimating}
+    style="{inReader && isSwiping ? `transform:translateX(${swipeProgress * 100}%)` : ''}"
     bind:this={readerRoot}
 >
     <ReaderView />

@@ -491,9 +491,6 @@ html, body {
     transition: transform 250ms ease-out, opacity 250ms ease-out;
 }
 
-.swipe-active .reader-page {
-    content-visibility: visible;
-}
 
 /* ============ SAVED SEARCHES ============ */
 .saved-list {

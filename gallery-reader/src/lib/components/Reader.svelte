@@ -149,18 +149,6 @@
         };
     });
 
-    // Disconnect observers during swipe to prevent intersection recalculations
-    $effect(() => {
-        if (appState.ui.isSwiping) {
-            preloadObserver?.disconnect();
-        } else if (gallery) {
-            for (const el of pageElements) {
-                if (el) {
-                    preloadObserver?.observe(el);
-                }
-            }
-        }
-    });
 
 </script>
 
