@@ -480,13 +480,11 @@ html, body {
 .view-layer.swipe-active {
     z-index: 4;
     box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
-    will-change: transform;
 }
 
 .view-layer.swipe-back {
     visibility: visible;
     pointer-events: none;
-    will-change: transform;
 }
 
 .view-layer.swipe-animating {
