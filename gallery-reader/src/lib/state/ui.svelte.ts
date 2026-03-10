@@ -32,13 +32,4 @@ export class UIState {
         this.viewStack = stack;
     }
 
-    private _spriteControllers = new Set<AbortController>();
-
-    registerSpriteController(c: AbortController) { this._spriteControllers.add(c); }
-    unregisterSpriteController(c: AbortController) { this._spriteControllers.delete(c); }
-
-    abortAllSprites() {
-        for (const c of this._spriteControllers) c.abort();
-        this._spriteControllers.clear();
-    }
 }

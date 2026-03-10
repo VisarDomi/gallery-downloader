@@ -2,130 +2,127 @@
     import { untrack, getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { API } from '$lib/config.js';
-    import type { Gallery, PagePosition } from '$lib/types.js';
+    import type { ReaderSession } from '$lib/state/reader.svelte.js';
 
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
 
     let {
-        gallery,
+        session,
         startPosition,
         onClose,
     }: {
-        gallery: Gallery | null;
-        startPosition: PagePosition;
+        session: ReaderSession | null;
+        startPosition: import('$lib/types.js').PagePosition;
         onClose: () => void;
     } = $props();
 
+    const gallery = $derived(session?.gallery ?? null);
     const pageCount = $derived(gallery?.count ?? 0);
     let pageElements: HTMLElement[] = [];
-    let preloadObserver: IntersectionObserver | undefined;
     let suppressSave = true;
-    let suppressTimer: ReturnType<typeof setTimeout>;
-    let scrollRafId: number | undefined;
-
-    // Blob URL memory management
-    let blobUrls = new Map<number, string>();
-    let loadingPages = new Set<number>();
-    let abortController: AbortController | undefined;
 
     function registerPage(node: HTMLElement, index: () => number) {
         const idx = index();
         pageElements[idx] = node;
-        preloadObserver?.observe(node);
+        // Observer is set up in $effect; observe existing elements
+        if (session && !session.isDropped) {
+            // The observer may not be set yet on first render, but pages will be
+            // observed in the $effect below once the observer is created
+        }
     }
 
-    function revokeAll() {
-        abortController?.abort();
-        for (const url of blobUrls.values()) URL.revokeObjectURL(url);
-        blobUrls.clear();
-        loadingPages.clear();
-    }
+    function loadPage(s: ReaderSession, pageIndex: number) {
+        if (s.hasPage(pageIndex) || s.isLoading(pageIndex)) return;
+        s.markLoading(pageIndex);
 
-    function loadPage(g: Gallery, pageIndex: number, signal: AbortSignal) {
-        if (blobUrls.has(pageIndex) || loadingPages.has(pageIndex)) return;
-        loadingPages.add(pageIndex);
-
+        const g = s.gallery;
         const url = API.MEDIA(`${g.path}/${g.fullFiles[pageIndex]}`);
-        fetch(url, { signal })
+        fetch(url, { signal: s.signal })
             .then((r) => r.blob())
             .then((blob) => {
+                if (s.isDropped) return;
                 const blobUrl = URL.createObjectURL(blob);
-                blobUrls.set(pageIndex, blobUrl);
+                s.addBlobUrl(pageIndex, blobUrl);
                 const img = pageElements[pageIndex]?.querySelector('img');
                 if (img) img.src = blobUrl;
             })
             .catch(() => {})
-            .finally(() => loadingPages.delete(pageIndex));
+            .finally(() => s.unmarkLoading(pageIndex));
     }
 
-    function handleReaderScroll(viewReader: HTMLElement, g: Gallery) {
-        if (scrollRafId != null) return;
-        scrollRafId = requestAnimationFrame(() => {
-            scrollRafId = undefined;
-            if (suppressSave || !g) return;
-            const scrollTop = viewReader.scrollTop;
-            let idx = 0;
-            for (let i = 0; i < pageElements.length; i++) {
-                const el = pageElements[i];
-                if (!el) continue;
-                if (el.offsetTop + el.offsetHeight > scrollTop) { idx = i; break; }
-            }
-            const el = pageElements[idx];
-            const fraction = el
-                ? Math.max(0, Math.min(1, (scrollTop - el.offsetTop) / el.offsetHeight))
-                : 0;
-            appState.reader.saveProgress(g.gallery_id, { pageIndex: idx, fraction });
-        });
+    function handleReaderScroll(viewReader: HTMLElement, s: ReaderSession) {
+        if (s.isDropped || suppressSave) return;
+
+        const scrollTop = viewReader.scrollTop;
+        let idx = 0;
+        for (let i = 0; i < pageElements.length; i++) {
+            const el = pageElements[i];
+            if (!el) continue;
+            if (el.offsetTop + el.offsetHeight > scrollTop) { idx = i; break; }
+        }
+        const el = pageElements[idx];
+        const fraction = el
+            ? Math.max(0, Math.min(1, (scrollTop - el.offsetTop) / el.offsetHeight))
+            : 0;
+        appState.reader.saveProgress(s.gallery.gallery_id, { pageIndex: idx, fraction });
     }
 
-    // Reactive: when gallery changes, set up observers and scroll to start position
+    // Reactive: when session changes, set up observers and scroll to start position
     $effect(() => {
-        const g = gallery;
-        if (!g) return;
+        const s = session;
+        if (!s) return;
+        const g = s.gallery;
 
         const initialPosition = untrack(() => startPosition);
 
-        // Clean up previous gallery's resources
-        revokeAll();
-        abortController = new AbortController();
-        const signal = abortController.signal;
-
         suppressSave = true;
-        clearTimeout(suppressTimer);
         pageElements.length = g.count;
 
         const viewReader = getReaderRoot();
 
         // Preload observer — triggers fetch when pages are within 1 viewport of visible area
-        preloadObserver?.disconnect();
         const preObs = new IntersectionObserver(
             (entries) => {
+                if (s.isDropped) return;
                 for (const entry of entries) {
                     if (entry.isIntersecting) {
                         const idx = pageElements.indexOf(entry.target as HTMLElement);
-                        if (idx >= 0 && !signal.aborted) loadPage(g, idx, signal);
+                        if (idx >= 0) loadPage(s, idx);
                     }
                 }
             },
             { rootMargin: '100% 0px', root: viewReader }
         );
-        preloadObserver = preObs;
+        s.setObserver(preObs);
 
         for (const el of pageElements) {
-            if (el) {
-                preObs.observe(el);
-            }
+            if (el) preObs.observe(el);
         }
 
         // Eagerly load start page (don't wait for observer)
-        loadPage(g, initialPosition.pageIndex, signal);
+        loadPage(s, initialPosition.pageIndex);
 
-        // Scroll handler for progress tracking
-        const onScroll = () => handleReaderScroll(viewReader!, g);
+        // Scroll handler for progress tracking — throttle via rAF
+        let scrollRafId: number | undefined;
+        const onScroll = () => {
+            if (scrollRafId != null) return;
+            scrollRafId = requestAnimationFrame(() => {
+                scrollRafId = undefined;
+                handleReaderScroll(viewReader!, s);
+            });
+        };
         viewReader?.addEventListener('scroll', onScroll, { passive: true });
+        s.setScrollCleanup(() => {
+            viewReader?.removeEventListener('scroll', onScroll);
+            if (scrollRafId != null) {
+                cancelAnimationFrame(scrollRafId);
+                scrollRafId = undefined;
+            }
+        });
 
         // Scroll to start position within the reader's own scroll container
-        requestAnimationFrame(() => {
+        const rafId = requestAnimationFrame(() => {
+            if (s.isDropped) return;
             if (viewReader && initialPosition.pageIndex > 0) {
                 const el = pageElements[initialPosition.pageIndex];
                 if (el) {
@@ -134,31 +131,29 @@
             } else if (viewReader) {
                 viewReader.scrollTop = 0;
             }
-            suppressTimer = setTimeout(() => { suppressSave = false; }, 500);
+            const timerId = setTimeout(() => { suppressSave = false; }, 500);
+            s.addTimer(timerId);
         });
+        s.addRaf(rafId);
 
+        // Minimal cleanup — session.drop() handles the rest
         return () => {
-            revokeAll();
-            preObs.disconnect();
-            viewReader?.removeEventListener('scroll', onScroll);
-            if (scrollRafId != null) {
-                cancelAnimationFrame(scrollRafId);
-                scrollRafId = undefined;
-            }
-            clearTimeout(suppressTimer);
+            // Nothing here — session owns all resources.
+            // drop() is called by ReaderState.closeReader() or openReader().
         };
     });
 
 
 </script>
 
-{#if gallery}
+{#if session}
+    {@const g = session.gallery}
     <div
         class="reader-wrapper"
         role="application"
     >
         {#each Array(pageCount) as _, i}
-            {@const dim = gallery.dimensions[i]}
+            {@const dim = g.dimensions[i]}
             {@const aspectRatio = dim && dim.width && dim.height ? `${dim.width}/${dim.height}` : '2/3'}
             <div class="reader-page" use:registerPage={() => i} style="aspect-ratio:{aspectRatio}">
                 <img alt="Page {i + 1}" decoding="async" style="width:100%;display:block" />

@@ -3,7 +3,7 @@
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import Reader from '$lib/components/Reader.svelte';
 
-    const gallery = $derived(appState.reader.activeGallery);
+    const session = $derived(appState.reader.session);
     const startPosition = $derived(appState.reader.currentPosition);
 
     function handleClose() {
@@ -12,5 +12,5 @@
 </script>
 
 <div use:swipeBack={{ onClose: handleClose, ui: appState.ui }}>
-    <Reader {gallery} {startPosition} onClose={handleClose} />
+    <Reader {session} {startPosition} onClose={handleClose} />
 </div>

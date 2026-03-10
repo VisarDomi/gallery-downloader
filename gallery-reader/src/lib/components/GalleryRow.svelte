@@ -3,6 +3,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { API, SPRITE_THUMB_WIDTH, SPRITE_THUMB_HEIGHT, MAX_THUMBS_PER_STRIP } from '$lib/config.js';
     import type { GalleryListItem } from '$lib/types.js';
+    import { SpriteScope } from '$lib/state/reader.svelte.js';
     import InfoModal from './InfoModal.svelte';
 
     let {
@@ -18,9 +19,8 @@
     let stripContainer: HTMLDivElement | undefined = $state();
     let showInfoModal = $state(false);
 
-    // Blob URL memory management
-    let blobUrls: string[] = [];
-    let abortController: AbortController | undefined;
+    // Sprite resource ownership
+    const scope = new SpriteScope();
 
     const id = $derived(gallery.gallery_id);
     const thumbCount = $derived(gallery.thumb_count || 0);
@@ -47,7 +47,7 @@
                 if (!res.ok) return;
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
-                blobUrls.push(url);
+                scope.addBlobUrl(url);
                 img.src = url;
                 return;
             } catch {
@@ -57,19 +57,15 @@
     }
 
     function fetchSprites() {
-        if (abortController) {
-            appState.ui.unregisterSpriteController(abortController);
-            abortController.abort();
-        }
-        abortController = new AbortController();
-        appState.ui.registerSpriteController(abortController);
+        scope.abort();
+        scope.refresh();
         const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
         if (!imgs) return;
 
         for (let i = 0; i < stripCount; i++) {
             const img = imgs[i];
             if (!img || img.src) continue; // skip already-loaded strips
-            fetchSprite(img, i, abortController.signal);
+            fetchSprite(img, i, scope.signal);
         }
     }
 
@@ -90,7 +86,7 @@
     // re-fetch missing strips when reader closes (deferred to idle to avoid fetch storm)
     $effect(() => {
         if (appState.ui.viewMode === 'reader') {
-            abortController?.abort();
+            scope.abort();
         } else if (stripContainer) {
             scheduleIdle(() => {
                 if (stripContainer && appState.ui.viewMode !== 'reader') {
@@ -130,14 +126,9 @@
         appState.favorites.toggle(id, appState.searchState.fullQuery, appState.ui.viewMode === 'favorites');
     }
 
-    // Revoke blob URLs and abort in-flight fetches when this row leaves the DOM
+    // Full cleanup when this row leaves the DOM
     onDestroy(() => {
-        if (abortController) {
-            appState.ui.unregisterSpriteController(abortController);
-            abortController.abort();
-        }
-        for (const url of blobUrls) URL.revokeObjectURL(url);
-        blobUrls.length = 0;
+        scope.drop();
     });
 
     function handleSearchFilter(opts: { artist?: string; group?: string; language?: string }) {

@@ -24,9 +24,7 @@ class AppState {
     private tickInterval: ReturnType<typeof setInterval> | undefined;
 
     constructor() {
-        this.reader = new ReaderState(this.ui, {
-            onBeforeOpen: () => this.ui.abortAllSprites(),
-        });
+        this.reader = new ReaderState(this.ui);
         this.downloader = new DownloaderState(this.toast);
         this.delete_ = new DeleteState({
             favorites: this.favorites,
