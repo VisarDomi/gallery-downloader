@@ -185,6 +185,8 @@ html, body {
     background: #000;
     overflow: hidden;
     transition: border 0.3s;
+    content-visibility: auto;
+    contain-intrinsic-size: auto 100% 300px;
 }
 
 .row-strip {
@@ -479,7 +481,17 @@ html, body {
 
 .view-layer.swipe-active {
     z-index: 4;
-    box-shadow: -10px 0 30px rgba(0, 0, 0, 0.3);
+}
+
+.view-layer.swipe-active::after {
+    content: '';
+    position: fixed;
+    top: 0;
+    bottom: 0;
+    left: -30px;
+    width: 30px;
+    background: linear-gradient(to right, transparent, rgba(0, 0, 0, 0.3));
+    pointer-events: none;
 }
 
 .view-layer.swipe-back {

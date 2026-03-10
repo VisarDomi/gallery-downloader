@@ -9,7 +9,7 @@
     }
 </script>
 
-<div use:swipeBack={{ onClose: handleSwipeBack, ui: appState.ui }}>
+<div use:swipeBack={{ onClose: handleSwipeBack, peekBack: () => appState.ui.peekBack() }}>
     <SearchBar />
     <SavedSearches />
 </div>

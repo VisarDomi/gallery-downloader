@@ -4,9 +4,6 @@ export class UIState {
     viewMode = $state<ViewMode>('list');
     viewStack = $state<ViewMode[]>([]);
     stripScrolls: Record<number, number> = {};
-    isSwiping = $state(false);
-    swipeProgress = $state(0);
-    swipeAnimating = $state(false);
 
     onViewChange: (() => void) | null = null;
 
