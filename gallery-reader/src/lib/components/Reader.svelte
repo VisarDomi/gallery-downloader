@@ -5,6 +5,7 @@
     import type { ReaderSession } from '$lib/state/reader.svelte.js';
 
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
+    const scheduleIdle = globalThis.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 0));
 
     let {
         session,
@@ -91,7 +92,7 @@
                     }
                 }
             },
-            { rootMargin: '100% 0px', root: viewReader }
+            { rootMargin: '500% 0px', root: viewReader }
         );
         s.setObserver(preObs);
 
@@ -102,22 +103,42 @@
         // Eagerly load start page (don't wait for observer)
         loadPage(s, initialPosition.pageIndex);
 
-        // Scroll handler for progress tracking — throttle via rAF
-        let scrollRafId: number | undefined;
-        const onScroll = () => {
-            if (scrollRafId != null) return;
-            scrollRafId = requestAnimationFrame(() => {
-                scrollRafId = undefined;
-                handleReaderScroll(viewReader!, s);
+        // Eagerly load ALL pages via idle callbacks so nothing is black on scroll.
+        // Start from the pages nearest to the initial position, fanning outward.
+        const total = g.count;
+        const start = initialPosition.pageIndex;
+        const order: number[] = [];
+        for (let d = 1; d < total; d++) {
+            if (start + d < total) order.push(start + d);
+            if (start - d >= 0) order.push(start - d);
+        }
+        let idx = 0;
+        function scheduleNext() {
+            if (s.isDropped || idx >= order.length) return;
+            scheduleIdle(() => {
+                if (s.isDropped) return;
+                // Load a batch of 3 per idle frame to saturate network without blocking UI
+                const end = Math.min(idx + 3, order.length);
+                for (; idx < end; idx++) {
+                    loadPage(s, order[idx]);
+                }
+                scheduleNext();
             });
+        }
+        scheduleNext();
+
+        // Scroll handler for progress tracking — throttle via rAF
+        let scrollTimer: ReturnType<typeof setTimeout> | undefined;
+        const onScroll = () => {
+            clearTimeout(scrollTimer);
+            scrollTimer = setTimeout(() => {
+                handleReaderScroll(viewReader!, s);
+            }, 500);
         };
         viewReader?.addEventListener('scroll', onScroll, { passive: true });
         s.setScrollCleanup(() => {
             viewReader?.removeEventListener('scroll', onScroll);
-            if (scrollRafId != null) {
-                cancelAnimationFrame(scrollRafId);
-                scrollRafId = undefined;
-            }
+            clearTimeout(scrollTimer);
         });
 
         // Scroll to start position within the reader's own scroll container

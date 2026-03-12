@@ -191,8 +191,6 @@ html, body {
     background: #000;
     overflow: hidden;
     transition: border 0.3s;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 100% 300px;
 }
 
 .row-strip {
@@ -455,13 +453,12 @@ html, body {
     min-height: 100vh;
     user-select: none;
     -webkit-user-select: none;
+    overflow-anchor: none;
 }
 
 .reader-page {
     width: 100%;
     display: block;
-    content-visibility: auto;
-    contain-intrinsic-size: auto 100vw auto;
 }
 
 .reader-page img {
