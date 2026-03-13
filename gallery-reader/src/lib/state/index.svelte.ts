@@ -195,12 +195,14 @@ class AppState {
 
     // -- Resume detection --
 
+    private onVisibilityChange = () => {
+        if (document.visibilityState === 'visible') {
+            this.handleResume();
+        }
+    };
+
     private setupResumeDetection() {
-        document.addEventListener('visibilitychange', () => {
-            if (document.visibilityState === 'visible') {
-                this.handleResume();
-            }
-        });
+        document.addEventListener('visibilitychange', this.onVisibilityChange);
 
         // iOS sentinel: detect deep sleep via tick drift
         this.lastTick = Date.now();
@@ -212,6 +214,13 @@ class AppState {
                 this.handleResume();
             }
         }, 1000);
+    }
+
+    destroy() {
+        clearInterval(this.tickInterval);
+        document.removeEventListener('visibilitychange', this.onVisibilityChange);
+        this.reader.destroy();
+        this.toast.destroy();
     }
 
     private handleResume() {

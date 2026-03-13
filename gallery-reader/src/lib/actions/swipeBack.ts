@@ -136,6 +136,7 @@ export function swipeBack(node: HTMLElement, options: SwipeBackOptions) {
 	return {
 		update(newOptions: SwipeBackOptions) { opts = newOptions; },
 		destroy() {
+			cleanup();
 			node.removeEventListener('touchstart', onStart);
 			node.removeEventListener('touchmove', onMove);
 			node.removeEventListener('touchend', onEnd);

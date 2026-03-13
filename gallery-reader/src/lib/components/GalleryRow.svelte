@@ -46,6 +46,7 @@
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
                 scope.addBlobUrl(url);
+                if (scope.isDropped) return;
                 img.src = url;
                 return;
             } catch {

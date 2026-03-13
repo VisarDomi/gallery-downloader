@@ -41,9 +41,9 @@
         fetch(url, { signal: s.signal })
             .then((r) => r.blob())
             .then((blob) => {
-                if (s.isDropped) return;
                 const blobUrl = URL.createObjectURL(blob);
                 s.addBlobUrl(pageIndex, blobUrl);
+                if (s.isDropped) return;
                 const img = pageElements[pageIndex]?.querySelector('img');
                 if (img) img.src = blobUrl;
             })
@@ -157,10 +157,8 @@
         });
         s.addRaf(rafId);
 
-        // Minimal cleanup — session.drop() handles the rest
         return () => {
-            // Nothing here — session owns all resources.
-            // drop() is called by ReaderState.closeReader() or openReader().
+            if (!s.isDropped) s.drop();
         };
     });
 

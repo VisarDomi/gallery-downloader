@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, setContext } from 'svelte';
+    import { onMount, onDestroy, setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { initAppDimensions } from '$lib/state/appDimensions.js';
     import ListView from '$lib/views/ListView.svelte';
@@ -12,6 +12,8 @@
         initAppDimensions();
         appState.init();
     });
+
+    onDestroy(() => appState.destroy());
 
     let readerRoot = $state<HTMLElement | null>(null);
     setContext('readerRoot', () => readerRoot);

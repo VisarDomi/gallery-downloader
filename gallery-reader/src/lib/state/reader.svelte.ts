@@ -127,6 +127,7 @@ export class ReaderSession {
 export class SpriteScope {
     abortController: AbortController;
     readonly blobUrls: string[] = [];
+    private _dropped = false;
 
     constructor() {
         this.abortController = new AbortController();
@@ -136,7 +137,15 @@ export class SpriteScope {
         return this.abortController.signal;
     }
 
+    get isDropped(): boolean {
+        return this._dropped;
+    }
+
     addBlobUrl(url: string) {
+        if (this._dropped) {
+            URL.revokeObjectURL(url);
+            return;
+        }
         this.blobUrls.push(url);
     }
 
@@ -147,11 +156,13 @@ export class SpriteScope {
 
     /** New AbortController, keep existing blobs — for resuming sprite fetches. */
     refresh() {
+        this.abortController.abort();
         this.abortController = new AbortController();
     }
 
     /** Full cleanup — abort + revoke all blobs. */
     drop() {
+        this._dropped = true;
         this.abortController.abort();
         for (const url of this.blobUrls) URL.revokeObjectURL(url);
         this.blobUrls.length = 0;
@@ -237,8 +248,19 @@ export class ReaderState {
         const newProgress = { ...this.progress };
         for (const id of ids) {
             delete newProgress[id];
+            const timer = this.debounceTimers.get(id);
+            if (timer != null) {
+                clearTimeout(timer);
+                this.debounceTimers.delete(id);
+            }
         }
         this.progress = newProgress;
+    }
+
+    destroy() {
+        this.session?.drop();
+        for (const timer of this.debounceTimers.values()) clearTimeout(timer);
+        this.debounceTimers.clear();
     }
 
     /** Silently scroll the thumbnail strip in the hidden back view to match current page. */
