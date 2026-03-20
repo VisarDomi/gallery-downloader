@@ -1,4 +1,5 @@
 import Database from 'better-sqlite3';
+import fs from 'fs';
 import path from 'path';
 import type { Gallery, ImageDimension } from './types.js';
 
@@ -240,6 +241,63 @@ export function getGalleryListItems(ids: number[]): GalleryListItem[] {
     `).all(...ids) as GalleryListItem[];
 }
 
+// -- Artists.txt parsing & caching --
+
+interface ParsedArtists {
+    artists: Set<string>;
+    groups: Set<string>;
+    languages: Set<string>;
+}
+
+let artistsFilePath: string | null = null;
+let cachedArtists: ParsedArtists | null = null;
+
+export function setArtistsFilePath(filePath: string): void {
+    artistsFilePath = filePath;
+    cachedArtists = null;
+}
+
+export function invalidateArtistsCache(): void {
+    cachedArtists = null;
+}
+
+function parseArtistsFile(filePath: string): ParsedArtists {
+    const artists = new Set<string>();
+    const groups = new Set<string>();
+    const languages = new Set<string>();
+
+    const content = fs.readFileSync(filePath, 'utf-8');
+    let currentLanguage = 'japanese';
+
+    for (const raw of content.split('\n')) {
+        const line = raw.trim();
+        if (!line || line.startsWith('#')) continue;
+
+        if (line.startsWith('language:')) {
+            currentLanguage = line.slice('language:'.length).replace(/_/g, ' ');
+            continue;
+        }
+
+        languages.add(currentLanguage);
+
+        if (line.startsWith('artist:')) {
+            artists.add(line.slice('artist:'.length).replace(/_/g, ' '));
+        } else if (line.startsWith('group:')) {
+            groups.add(line.slice('group:'.length).replace(/_/g, ' '));
+        }
+    }
+
+    return { artists, groups, languages };
+}
+
+function getTrackedArtists(): ParsedArtists | null {
+    if (!artistsFilePath) return null;
+    if (!cachedArtists) {
+        cachedArtists = parseArtistsFile(artistsFilePath);
+    }
+    return cachedArtists;
+}
+
 // -- Facets --
 
 export interface FacetsResult {
@@ -250,18 +308,49 @@ export interface FacetsResult {
 
 export function getFacets(): FacetsResult {
     const d = getDb();
+    const tracked = getTrackedArtists();
 
-    const languages = d.prepare(`
-        SELECT language, COUNT(*) as cnt FROM galleries WHERE language != '' GROUP BY language ORDER BY cnt DESC
-    `).all() as { language: string; cnt: number }[];
+    let languages: { language: string; cnt: number }[];
+    let artists: { value: string; cnt: number }[];
+    let groups: { value: string; cnt: number }[];
 
-    const artists = d.prepare(`
-        SELECT value, COUNT(*) as cnt FROM tags WHERE namespace = 'artist' GROUP BY value ORDER BY cnt DESC
-    `).all() as { value: string; cnt: number }[];
+    if (tracked) {
+        const langList = [...tracked.languages];
+        const langPlaceholders = langList.map(() => '?').join(',');
+        languages = d.prepare(`
+            SELECT language, COUNT(*) as cnt FROM galleries
+            WHERE language IN (${langPlaceholders})
+            GROUP BY language ORDER BY cnt DESC
+        `).all(...langList) as { language: string; cnt: number }[];
 
-    const groups = d.prepare(`
-        SELECT value, COUNT(*) as cnt FROM tags WHERE namespace = 'group' GROUP BY value ORDER BY cnt DESC
-    `).all() as { value: string; cnt: number }[];
+        const artistList = [...tracked.artists];
+        const artistPlaceholders = artistList.map(() => '?').join(',');
+        artists = d.prepare(`
+            SELECT value, COUNT(*) as cnt FROM tags
+            WHERE namespace = 'artist' AND value IN (${artistPlaceholders})
+            GROUP BY value ORDER BY cnt DESC
+        `).all(...artistList) as { value: string; cnt: number }[];
+
+        const groupList = [...tracked.groups];
+        const groupPlaceholders = groupList.map(() => '?').join(',');
+        groups = d.prepare(`
+            SELECT value, COUNT(*) as cnt FROM tags
+            WHERE namespace = 'group' AND value IN (${groupPlaceholders})
+            GROUP BY value ORDER BY cnt DESC
+        `).all(...groupList) as { value: string; cnt: number }[];
+    } else {
+        languages = d.prepare(`
+            SELECT language, COUNT(*) as cnt FROM galleries WHERE language != '' GROUP BY language ORDER BY cnt DESC
+        `).all() as { language: string; cnt: number }[];
+
+        artists = d.prepare(`
+            SELECT value, COUNT(*) as cnt FROM tags WHERE namespace = 'artist' GROUP BY value ORDER BY cnt DESC
+        `).all() as { value: string; cnt: number }[];
+
+        groups = d.prepare(`
+            SELECT value, COUNT(*) as cnt FROM tags WHERE namespace = 'group' GROUP BY value ORDER BY cnt DESC
+        `).all() as { value: string; cnt: number }[];
+    }
 
     return {
         languages: languages.map(r => [r.language, r.cnt]),

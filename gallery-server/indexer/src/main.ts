@@ -5,7 +5,7 @@ import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import { runScan } from './scanner.js';
-import { searchGalleries, getGalleryDetail, getGalleryListItems, getFacets, reopenDb } from './db.js';
+import { searchGalleries, getGalleryDetail, getGalleryListItems, getFacets, reopenDb, setArtistsFilePath, invalidateArtistsCache } from './db.js';
 
 const app = express();
 const PORT = 11557;
@@ -54,6 +54,10 @@ app.use((req, res, next) => {
     next();
 });
 
+// --- ARTISTS.TXT ---
+const artistsPath = path.resolve(import.meta.dirname, '..', '..', 'artists.txt');
+setArtistsFilePath(artistsPath);
+
 // --- INITIAL SCAN ---
 runScan().then(() => {
     console.log('Initial scan complete, DB ready.');
@@ -66,7 +70,7 @@ app.get('/facets', (_req, res) => {
 
 app.get('/search', (req, res) => {
     const q = (req.query.q as string || '');
-    const limit = Number(req.query.limit) || 50;
+    const limit = req.query.limit ? Number(req.query.limit) : -1;
     const offset = Number(req.query.offset) || 0;
 
     res.json(searchGalleries(q, limit, offset));
@@ -103,6 +107,7 @@ app.post('/refresh', async (_req, res) => {
     res.json({ status: 'scanning' });
     await runScan();
     reopenDb();
+    invalidateArtistsCache();
 });
 
 server.listen(PORT, '0.0.0.0', () => {
