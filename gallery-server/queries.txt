@@ -1,0 +1,3 @@
+# One query per line — parsed like the search bar
+# Positive tokens are intersected, negative tokens are subtracted
+language:japanese tag:anthology -female:mother -female:mind_control -male:yaoi -female:futanari -female:scat
