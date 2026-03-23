@@ -7,7 +7,6 @@ import { ReaderState } from './reader.svelte.js';
 import { FavoritesState } from './favorites.svelte.js';
 import { SavedState } from './saved.svelte.js';
 import { DeleteState } from './delete.svelte.js';
-import { DownloaderState } from './downloader.svelte.js';
 import { saveSession, loadSession, clearSession } from './session.js';
 
 class AppState {
@@ -18,14 +17,12 @@ class AppState {
     saved = new SavedState();
     reader: ReaderState;
     delete_: DeleteState;
-    downloader: DownloaderState;
 
     private lastTick = Date.now();
     private tickInterval: ReturnType<typeof setInterval> | undefined;
 
     constructor() {
         this.reader = new ReaderState(this.ui);
-        this.downloader = new DownloaderState(this.toast);
         this.delete_ = new DeleteState({
             favorites: this.favorites,
             reader: this.reader,

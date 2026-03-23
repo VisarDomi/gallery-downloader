@@ -9,8 +9,13 @@ import * as u from './utils.js';
 import { CONFIG } from './config.js';
 import { socketService } from './socket.service.js';
 import { queueManager } from './queue.manager.js';
+import { runSync, getSyncStatus } from './sync.js';
+import { loadManifest } from './manifest.js';
 
 const app = express();
+
+const ARTISTS_PATH = path.resolve(import.meta.dirname, '..', '..', 'artists.txt');
+const QUERIES_PATH = path.resolve(import.meta.dirname, '..', '..', 'queries.txt');
 
 const logServerInfo = (port: number) => {
     const networkInterfaces = os.networkInterfaces();
@@ -86,8 +91,47 @@ app.post('/cancel', (_req, res) => {
     res.json({ status: 'stopped' });
 });
 
+// --- SYNC ROUTES ---
+app.post('/sync', async (_req, res) => {
+    res.json({ status: 'started' });
+    runSync(ARTISTS_PATH, QUERIES_PATH).catch(console.error);
+});
+
+app.get('/sync/status', (_req, res) => {
+    res.json(getSyncStatus());
+});
+
+// --- QUERIES ENDPOINT (for frontend saved searches) ---
+app.get('/queries', (_req, res) => {
+    const manifest = loadManifest(ARTISTS_PATH, QUERIES_PATH);
+    res.json(manifest.queries.map(q => q.raw));
+});
+
+// --- FILE WATCH: auto-sync on manifest changes ---
+function watchManifests() {
+    let debounceTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const triggerSync = () => {
+        if (debounceTimer) clearTimeout(debounceTimer);
+        debounceTimer = setTimeout(() => {
+            console.log('[watch] Manifest changed, triggering sync...');
+            runSync(ARTISTS_PATH, QUERIES_PATH).catch(console.error);
+        }, 2000);
+    };
+
+    for (const filePath of [ARTISTS_PATH, QUERIES_PATH]) {
+        try {
+            fs.watch(filePath, () => triggerSync());
+            console.log(`[watch] Watching ${path.basename(filePath)}`);
+        } catch {
+            console.log(`[watch] Could not watch ${path.basename(filePath)} (file may not exist)`);
+        }
+    }
+}
+
 // --- START ---
 server.listen(CONFIG.PORT, '0.0.0.0', () => {
     logServerInfo(CONFIG.PORT);
     queueManager.restore();
+    watchManifests();
 });

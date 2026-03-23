@@ -265,6 +265,33 @@ class QueueManager {
         this.emitState();
     }
 
+    /**
+     * Append gallery IDs to the queue without replacing existing items.
+     * Converts IDs to hitomi URLs. Deduplicates against current queue + active download.
+     */
+    public appendQueue(galleryIds: number[]) {
+        const existingUrls = new Set(this.downloadQueue);
+        if (this.currentUrl) existingUrls.add(this.currentUrl);
+
+        let added = 0;
+        for (const id of galleryIds) {
+            const url = `https://hitomi.la/galleries/${id}.html`;
+            if (!existingUrls.has(url)) {
+                this.downloadQueue.push(url);
+                existingUrls.add(url);
+                added++;
+            }
+        }
+
+        if (added > 0) {
+            this.stopSignal = false;
+            this.emitState();
+            this.processQueue();
+        }
+
+        return added;
+    }
+
     public restore() {
         const saved = loadQueue();
         if (!saved || saved.queue.length === 0) return;

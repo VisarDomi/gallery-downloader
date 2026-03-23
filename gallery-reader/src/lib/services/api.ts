@@ -1,4 +1,3 @@
-import { hitomi } from 'gallery-sources';
 import { API } from '../config.js';
 import type { Gallery, GalleryListItem, SearchResponse } from '../types.js';
 
@@ -49,13 +48,9 @@ export async function facets(): Promise<{
     return res.json();
 }
 
-export async function sendToDownloader(query: string): Promise<void> {
-    const url = hitomi.toSourceUrl(query);
-    await fetch(API.DOWNLOADER(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ urls: url }),
-    });
+export async function fetchDefaultQueries(): Promise<string[]> {
+    const res = await fetch(API.QUERIES());
+    return res.json();
 }
 
 export async function refreshIndex(): Promise<void> {

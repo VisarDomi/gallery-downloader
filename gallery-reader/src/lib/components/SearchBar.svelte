@@ -14,10 +14,6 @@
         appState.searchState.restoreFromQuery(inputValue);
     }
 
-    function handleDownload() {
-        appState.downloader.sendToDownloader(appState.searchState.fullQuery);
-    }
-
     function handleSave() {
         appState.saved.save(appState.searchState.fullQuery);
         appState.toast.show('Search saved');
@@ -92,7 +88,6 @@
     </div>
 
     <div class="action-row">
-        <button class="action-btn" onclick={handleDownload}>DL</button>
         <button class="action-btn" onclick={handleSave}>Save</button>
         <button
             class="action-btn"

@@ -1,7 +1,7 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
 
-    const searches = $derived(appState.saved.savedSearches);
+    const searches = $derived(appState.saved.allSearches);
 
     function handleClick(query: string) {
         appState.searchState.restoreFromQuery(query);
@@ -18,10 +18,12 @@
     {#if searches.length === 0}
         <div class="result-count">No saved searches</div>
     {:else}
-        {#each searches as query}
+        {#each searches as { query, isDefault }}
             <button class="saved-item" onclick={() => handleClick(query)}>
                 <span class="saved-item-query">{query}</span>
-                <span class="saved-item-delete" role="button" tabindex="0" onclick={(e) => handleDelete(e, query)} onkeydown={(e) => { if (e.key === 'Enter') handleDelete(e, query); }}>&#x2715;</span>
+                {#if !isDefault}
+                    <span class="saved-item-delete" role="button" tabindex="0" onclick={(e) => handleDelete(e, query)} onkeydown={(e) => { if (e.key === 'Enter') handleDelete(e, query); }}>&#x2715;</span>
+                {/if}
             </button>
         {/each}
     {/if}

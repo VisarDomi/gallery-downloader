@@ -1,3 +1,4 @@
 # One query per line — parsed like the search bar
 # Positive tokens are intersected, negative tokens are subtracted
-language:japanese tag:anthology -female:mother -female:mind_control -male:yaoi -female:futanari -female:scat
+language:japanese female:cheating -tag:anthology -female:mother -female:mind_control -male:yaoi -female:futanari -female:scat -female:sole_dickgirl -female:dickgirl_on_female -female:dickgirl_on_dickgirl -male:dickgirl_on_male -female:male_on_dickgirl -female:dickgirls_only -female:dicknipples -female:dick_growth -female:full-packaged_futanari -female:futanarization -female:bestiality -female:low_bestiality -male:bestiality -male:low_bestiality -female:insect -female:insect_girl -male:furry -female:furry -male:human_on_furry -female:human_on_furry -tag:animal_on_animal -female:low_scat -male:scat -female:scat_insertion -male:low_scat -male:mind_control -female:mind_break -male:mind_break 
+

@@ -1,6 +1,7 @@
 # One entry per line: type:name (language defaults to japanese)
 # Supports: artist, group, female, male, series, character
 # Override language with: language:X type:name
+artist:shunjou_shuusuke
 artist:yoko_juusuke
 group:ichigo_crepe_oomorigumi
 artist:hokkyoku_hotaru
@@ -166,3 +167,32 @@ artist:hanazawa_suou
 artist:nora_shinji
 group:tokumori_hanten
 group:hot_mikan
+artist:mizuryu_kei
+group:alice_no_takarabako
+artist:itou_life
+group:itou_life
+artist:darabuchi
+group:darabuchidou
+artist:13.
+group:kaiten_sommelier
+artist:urakan
+artist:gachonjirou
+group:mosquito_man
+artist:andoryu
+group:chimamire_yashiki
+group:glam_sight
+artist:amane-san
+group:amagyappa
+group:cook_milk
+group:nagaremono
+artist:sugiura_sen
+group:watosato
+artist:butcha-u
+artist:shindol
+group:zetubou
+artist:meme50
+artist:mikoyan
+artist:nuezou
+artist:ribyuhki
+artist:yumeno_tanuki
+group:eroquis
