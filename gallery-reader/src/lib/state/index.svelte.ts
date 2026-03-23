@@ -1,5 +1,7 @@
 import { PAGE_SIZE, RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../config.js';
 import * as api from '../services/api.js';
+import { LogService } from '../services/LogService.js';
+import { setDbLogger } from '../services/db.js';
 import { ToastState } from './toast.svelte.js';
 import { UIState } from './ui.svelte.js';
 import { SearchState } from './search.svelte.js';
@@ -10,6 +12,7 @@ import { DeleteState } from './delete.svelte.js';
 import { saveSession, loadSession, clearSession } from './session.js';
 
 class AppState {
+    readonly log = new LogService();
     toast = new ToastState();
     ui = new UIState();
     searchState = new SearchState();
@@ -32,19 +35,40 @@ class AppState {
     }
 
     async init() {
-        await Promise.all([
-            this.saved.init(),
-            this.favorites.init(),
-            this.reader.loadProgress(),
-        ]);
+        const t0 = Date.now();
 
-        api.refreshIndex().catch(console.error);
+        // LogService owns global error handlers — start first so crashes during init are captured
+        this.log.start();
+        this.log.log('boot-start');
 
-        await this.searchState.loadFilterOptions();
+        // Wire db module's logger to our LogService
+        setDbLogger((op, error) => this.log.log('db-error', { op, error }));
 
-        await this.restoreSession();
+        try {
+            await Promise.all([
+                this.saved.init(),
+                this.favorites.init(),
+                this.reader.loadProgress(),
+            ]);
 
-        this.setupResumeDetection();
+            api.refreshIndex().catch((e) =>
+                this.log.log('refresh-index-failed', { message: String(e) }),
+            );
+
+            await this.searchState.loadFilterOptions();
+
+            await this.restoreSession();
+
+            this.setupResumeDetection();
+
+            this.log.log('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
+        } catch (e) {
+            this.log.log('init-crash', {
+                message: String((e as Error)?.message ?? e),
+                stack: (e as Error)?.stack ?? '',
+                ms: Date.now() - t0,
+            });
+        }
     }
 
     // -- Cross-domain orchestration --
@@ -94,9 +118,16 @@ class AppState {
     private async restoreSession() {
         const snap = loadSession();
         if (!snap) {
+            this.log.log('restore-none');
             await this.searchState.search('');
             return;
         }
+
+        this.log.log('restore-start', {
+            view: snap.viewMode,
+            galleryId: snap.activeGalleryId ?? null,
+            hasQuery: !!snap.searchQuery,
+        });
 
         clearSession();
 
@@ -122,8 +153,10 @@ class AppState {
                         this.ui.setViewDirect('reader', snap.viewStack);
                         await this.prepareBackViews(snap);
                         this.persistSession();
+                        this.log.log('restore-ok', { view: 'reader', galleryId: snap.activeGalleryId });
                         return;
                     }
+                    this.log.log('restore-fallback', { view: 'reader', reason: 'gallery-load-failed' });
                 }
                 // Fallback to list
                 break;
@@ -135,11 +168,13 @@ class AppState {
                     this.favorites.currentPage = snap.favoritesPage;
                 }
                 this.persistSession();
+                this.log.log('restore-ok', { view: 'favorites' });
                 return;
 
             case 'saved':
                 this.ui.setViewDirect('saved', snap.viewStack);
                 this.persistSession();
+                this.log.log('restore-ok', { view: 'saved' });
                 return;
 
             case 'list':
@@ -148,6 +183,7 @@ class AppState {
         }
 
         this.persistSession();
+        this.log.log('restore-ok', { view: 'list' });
     }
 
     /**
@@ -214,6 +250,7 @@ class AppState {
     }
 
     destroy() {
+        this.log.destroy();
         clearInterval(this.tickInterval);
         document.removeEventListener('visibilitychange', this.onVisibilityChange);
         this.reader.destroy();
@@ -227,12 +264,14 @@ class AppState {
         const elapsed = Date.now() - this.lastTick;
 
         if (elapsed > DEEP_SLEEP_MS) {
+            this.log.log('resume', { kind: 'deep-sleep', elapsedMs: elapsed });
             this.toast.show('Session expired, refreshing...');
             this.searchState.search(this.searchState.currentQuery);
             return;
         }
 
         if (elapsed > RESUME_RECOVERY_MS) {
+            this.log.log('resume', { kind: 'recovery', elapsedMs: elapsed });
             this.searchState.search(this.searchState.currentQuery);
         }
     }

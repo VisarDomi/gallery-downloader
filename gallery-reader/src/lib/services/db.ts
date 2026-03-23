@@ -3,6 +3,17 @@ const DB_VERSION = 2;
 
 import type { PagePosition } from '../types.js';
 
+let dbLogger: ((op: string, error: string) => void) | null = null;
+
+/** Wire IDB errors to the LogService. Call once during app init. */
+export function setDbLogger(fn: (op: string, error: string) => void): void {
+    dbLogger = fn;
+}
+
+function reportError(op: string, error: unknown): void {
+    dbLogger?.(op, String(error));
+}
+
 interface ProgressEntry {
     galleryId: number;
     pageIndex: number;
@@ -57,7 +68,10 @@ function openDB(): Promise<IDBDatabase> {
         };
 
         request.onsuccess = () => resolve(request.result);
-        request.onerror = () => reject(request.error);
+        request.onerror = () => {
+            reportError('openDB', request.error);
+            reject(request.error);
+        };
     });
 
     return dbPromise;
@@ -73,7 +87,7 @@ export async function getProgress(galleryId: number): Promise<PagePosition> {
             const entry = req.result as ProgressEntry | undefined;
             resolve(entry ? { pageIndex: entry.pageIndex, fraction: entry.fraction ?? 0 } : { pageIndex: 0, fraction: 0 });
         };
-        req.onerror = () => resolve({ pageIndex: 0, fraction: 0 });
+        req.onerror = () => { reportError('getProgress', req.error); resolve({ pageIndex: 0, fraction: 0 }); };
     });
 }
 
@@ -83,7 +97,7 @@ export async function setProgress(galleryId: number, position: PagePosition): Pr
         const tx = db.transaction('progress', 'readwrite');
         tx.objectStore('progress').put({ galleryId, pageIndex: position.pageIndex, fraction: position.fraction } satisfies ProgressEntry);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
+        tx.onerror = () => { reportError('setProgress', tx.error); resolve(); };
     });
 }
 
@@ -99,7 +113,7 @@ export async function getAllProgress(): Promise<Record<number, PagePosition>> {
             }
             resolve(map);
         };
-        req.onerror = () => resolve({});
+        req.onerror = () => { reportError('getAllProgress', req.error); resolve({}); };
     });
 }
 
@@ -110,7 +124,7 @@ export async function addFavorite(galleryId: number, query: string): Promise<voi
         const tx = db.transaction('favorites', 'readwrite');
         tx.objectStore('favorites').put({ galleryId, query, savedAt: Date.now() } satisfies FavoriteEntry);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
+        tx.onerror = () => { reportError('addFavorite', tx.error); resolve(); };
     });
 }
 
@@ -120,7 +134,7 @@ export async function removeFavorite(galleryId: number): Promise<void> {
         const tx = db.transaction('favorites', 'readwrite');
         tx.objectStore('favorites').delete(galleryId);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
+        tx.onerror = () => { reportError('removeFavorite', tx.error); resolve(); };
     });
 }
 
@@ -134,7 +148,7 @@ export async function getAllFavorites(): Promise<FavoriteEntry[]> {
             entries.sort((a, b) => (b.savedAt ?? 0) - (a.savedAt ?? 0));
             resolve(entries);
         };
-        req.onerror = () => resolve([]);
+        req.onerror = () => { reportError('getAllFavorites', req.error); resolve([]); };
     });
 }
 
@@ -145,7 +159,7 @@ export async function addSavedSearch(query: string): Promise<void> {
         const tx = db.transaction('savedSearches', 'readwrite');
         tx.objectStore('savedSearches').put({ query } satisfies SavedSearchEntry);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
+        tx.onerror = () => { reportError('addSavedSearch', tx.error); resolve(); };
     });
 }
 
@@ -155,7 +169,7 @@ export async function removeSavedSearch(query: string): Promise<void> {
         const tx = db.transaction('savedSearches', 'readwrite');
         tx.objectStore('savedSearches').delete(query);
         tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
+        tx.onerror = () => { reportError('removeSavedSearch', tx.error); resolve(); };
     });
 }
 
@@ -170,7 +184,7 @@ export async function removeGalleries(ids: number[]): Promise<void> {
             favoritesStore.delete(id);
         }
         tx.oncomplete = () => resolve();
-        tx.onerror = () => resolve();
+        tx.onerror = () => { reportError('removeGalleries', tx.error); resolve(); };
     });
 }
 
@@ -180,6 +194,6 @@ export async function getAllSavedSearches(): Promise<string[]> {
         const tx = db.transaction('savedSearches', 'readonly');
         const req = tx.objectStore('savedSearches').getAll();
         req.onsuccess = () => resolve((req.result as SavedSearchEntry[]).map(e => e.query));
-        req.onerror = () => resolve([]);
+        req.onerror = () => { reportError('getAllSavedSearches', req.error); resolve([]); };
     });
 }
