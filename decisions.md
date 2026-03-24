@@ -25,3 +25,12 @@
 **Decision:** `POST /remove` returns immediately with `{ status: 'started' }`. Progress is polled via `GET /remove/status`.
 
 **Why:** Re-resolving the full remaining manifest requires ~200 HTTP requests to hitomi with 100ms delays — roughly 20 seconds minimum. A synchronous HTTP request would time out or block the UI.
+
+## Remove endpoint: logging ownership split
+
+**Decision:** Three separate channels, each with one owner:
+- **StoryLog** (story.ts): narrative events persisted to `~/Pictures/gallery-dl/logs/stories.jsonl`. One JSONL entry per completed operation. What happened, when, with what numbers. For debugging after the fact.
+- **socketService**: real-time progress ticks (40/195). Ephemeral, for the live UI only.
+- **currentRemove status**: pollable state object for the frontend status endpoint.
+
+**Why:** A single `log()` function that writes everywhere mixes narrative with noise. Progress ticks (40/195, 80/195) are useful during the operation but meaningless in a post-mortem log — they obscure the actual story. Separating them means the persisted log contains only the events that matter: what was resolved, how many orphans, what was deleted, did it commit. When a bug is reported, `cat stories.jsonl | jq` gives the complete narrative without filtering through thousands of progress lines.
