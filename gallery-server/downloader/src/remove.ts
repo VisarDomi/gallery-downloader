@@ -7,7 +7,6 @@ import { loadManifest, type ArtistEntry } from './manifest.js';
 import { resolveArtistEntry, resolveQuery } from './resolver.js';
 import { CONFIG } from './config.js';
 import { socketService } from './socket.service.js';
-import { StoryLog } from './story.js';
 
 const INDEX_DB_PATH = path.join(CONFIG.WORKING_DIR, 'gallery-dl', 'gallery-index.db');
 const STREAMER_PORT = 11556;
@@ -46,10 +45,17 @@ export function getRemoveStatus(): RemoveStatus {
     return { ...currentRemove };
 }
 
+function story(msg: string) {
+    console.log(`[remove] ${msg}`);
+}
+
+function storyError(msg: string) {
+    console.error(`[remove] ${msg}`);
+}
+
 function progress(msg: string) {
     socketService.emitLog(`[remove] ${msg}\n`);
 }
-
 
 function removeLineFromFile(filePath: string, line: string): string | null {
     const content = fs.readFileSync(filePath, 'utf-8');
@@ -66,7 +72,6 @@ function restoreFile(filePath: string, originalContent: string) {
     fs.writeFileSync(filePath, originalContent);
 }
 
-
 function getLocalIds(): Set<number> {
     const ids = new Set<number>();
     if (fs.existsSync(INDEX_DB_PATH)) {
@@ -78,7 +83,6 @@ function getLocalIds(): Set<number> {
     }
     return ids;
 }
-
 
 function requestDeletion(ids: number[]): Promise<{ deleted: number[]; skipped: { id: number; reason: string }[] }> {
     return new Promise((resolve, reject) => {
@@ -113,7 +117,6 @@ function requestDeletion(ids: number[]): Promise<{ deleted: number[]; skipped: {
     });
 }
 
-
 function gitCommit(filePath: string, message: string): boolean {
     const repoRoot = path.resolve(filePath, '..', '..');
     try {
@@ -124,7 +127,6 @@ function gitCommit(filePath: string, message: string): boolean {
         return false;
     }
 }
-
 
 function findArtistEntry(manifest: ReturnType<typeof loadManifest>, line: string): ArtistEntry | null {
     const colonIdx = line.indexOf(':');
@@ -180,7 +182,6 @@ async function resolveRemainingManifest(
     return wantedIds;
 }
 
-
 export async function runRemove(
     file: 'artists' | 'queries',
     line: string,
@@ -188,14 +189,14 @@ export async function runRemove(
     queriesPath: string,
 ): Promise<RemoveStatus> {
     if (removeRunning) {
-        console.log('[remove] Already running, skipping.');
+        story('already running, skipping');
         return currentRemove;
     }
 
     removeRunning = true;
 
     const filePath = file === 'artists' ? artistsPath : queriesPath;
-    const story = new StoryLog('remove', { file, line });
+    const t0 = Date.now();
 
     currentRemove = {
         phase: 'resolving-removed',
@@ -214,29 +215,26 @@ export async function runRemove(
     let originalContent: string | null = null;
 
     try {
+        story(`started: ${line} from ${file}.txt`);
+
         const manifestBefore = loadManifest(artistsPath, queriesPath);
         const removedIds = await resolveRemovedIds(file, line, manifestBefore);
         currentRemove.removedIdCount = removedIds.size;
-        story.event('resolved removed entry', { line, idCount: removedIds.size });
+        story(`resolved removed entry: ${removedIds.size} IDs`);
 
         originalContent = removeLineFromFile(filePath, line);
         if (originalContent === null) {
             currentRemove.phase = 'error';
-            currentRemove.error = `Line not found in ${file}.txt: ${line}`;
-            story.error(`line not found in ${file}.txt`, { line });
-            story.finalize('error', {}, currentRemove.error);
+            currentRemove.error = `line not found in ${file}.txt: ${line}`;
+            storyError(currentRemove.error);
             return currentRemove;
         }
-        story.event(`removed line from ${file}.txt`);
+        story(`removed line from ${file}.txt`);
 
         currentRemove.phase = 'resolving-remaining';
         const wantedIds = await resolveRemainingManifest(artistsPath, queriesPath);
         currentRemove.wantedCount = wantedIds.size;
-        story.event('resolved remaining manifest', {
-            artists: currentRemove.resolvedTotal - 1,
-            queries: 1,
-            wantedIds: wantedIds.size,
-        });
+        story(`resolved remaining manifest: ${wantedIds.size} still wanted`);
 
         currentRemove.phase = 'diffing';
         const localIds = getLocalIds();
@@ -249,61 +247,42 @@ export async function runRemove(
             }
         }
         currentRemove.orphanCount = orphans.length;
-        story.event('computed orphans', {
-            removedIds: removedIds.size,
-            localIds: localIds.size,
-            wantedIds: wantedIds.size,
-            orphans: orphans.length,
-        });
+        story(`orphans: ${orphans.length} (${removedIds.size} removed ∩ ${localIds.size} local - ${wantedIds.size} wanted)`);
 
         if (orphans.length > 0) {
             currentRemove.phase = 'deleting';
             const result = await requestDeletion(orphans);
             currentRemove.deletedCount = result.deleted.length;
             currentRemove.skippedCount = result.skipped.length;
-            story.event('deleted orphans', {
-                deleted: result.deleted.length,
-                skipped: result.skipped.length,
-            });
-            if (result.skipped.length > 0) {
-                for (const s of result.skipped) {
-                    story.error('deletion skipped', { id: s.id, reason: s.reason });
-                }
+            story(`deleted ${result.deleted.length}, skipped ${result.skipped.length}`);
+            for (const s of result.skipped) {
+                storyError(`skip ${s.id}: ${s.reason}`);
             }
         } else {
-            story.event('no orphans to delete');
+            story('no orphans to delete');
         }
 
         currentRemove.phase = 'committing';
         const commitMsg = `remove ${line} from ${file}.txt`;
-        const committed = gitCommit(filePath, commitMsg);
-        if (committed) {
-            story.event('committed', { message: commitMsg });
+        if (gitCommit(filePath, commitMsg)) {
+            story(`committed: ${commitMsg}`);
         } else {
-            story.error('git commit failed', { message: commitMsg });
+            storyError(`git commit failed: ${commitMsg}`);
         }
 
         currentRemove.phase = 'done';
-        story.finalize('done', {
-            removedIdCount: removedIds.size,
-            wantedCount: wantedIds.size,
-            localCount: localIds.size,
-            orphanCount: orphans.length,
-            deletedCount: currentRemove.deletedCount,
-            skippedCount: currentRemove.skippedCount,
-        });
+        story(`done in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
         return currentRemove;
     } catch (e) {
         currentRemove.phase = 'error';
         currentRemove.error = String(e);
-        story.error('operation failed', { error: String(e) });
+        storyError(`failed: ${e}`);
 
         if (originalContent !== null) {
             restoreFile(filePath, originalContent);
-            story.event('rolled back file change');
+            story('rolled back file change');
         }
 
-        story.finalize('error', {}, String(e));
         return currentRemove;
     } finally {
         removeRunning = false;

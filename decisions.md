@@ -26,11 +26,10 @@
 
 **Why:** Re-resolving the full remaining manifest requires ~200 HTTP requests to hitomi with 100ms delays — roughly 20 seconds minimum. A synchronous HTTP request would time out or block the UI.
 
-## Remove endpoint: logging ownership split
+## Remove endpoint: logging split
 
-**Decision:** Three separate channels, each with one owner:
-- **StoryLog** (story.ts): narrative events persisted to `~/Pictures/gallery-dl/logs/stories.jsonl`. One JSONL entry per completed operation. What happened, when, with what numbers. For debugging after the fact.
-- **socketService**: real-time progress ticks (40/195). Ephemeral, for the live UI only.
-- **currentRemove status**: pollable state object for the frontend status endpoint.
+**Decision:** Two channels:
+- `story()` / `storyError()` → `console.log` / `console.error` → journalctl. Narrative events only: started, resolved X IDs, removed line, Y orphans, deleted Z, committed, done in Ns.
+- `progress()` → socketService only. Real-time ticks (40/195) for the live UI. Never hits journalctl.
 
-**Why:** A single `log()` function that writes everywhere mixes narrative with noise. Progress ticks (40/195, 80/195) are useful during the operation but meaningless in a post-mortem log — they obscure the actual story. Separating them means the persisted log contains only the events that matter: what was resolved, how many orphans, what was deleted, did it commit. When a bug is reported, `cat stories.jsonl | jq` gives the complete narrative without filtering through thousands of progress lines.
+**Why:** journalctl is already the log store — no need for a separate file. The problem was signal-to-noise: a single `log()` that writes everywhere puts progress ticks into journalctl alongside story events, making post-mortem debugging require filtering through hundreds of "Resolving: 40/195" lines to find "orphans: 343". Splitting story from progress means `journalctl -u gallery-downloader` reads as a clean narrative.
