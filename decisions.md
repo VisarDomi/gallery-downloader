@@ -31,3 +31,9 @@
 **Decision:** Only three log lines in the happy path: `start`, `deleting N orphans`, `done`. Errors go to `console.error`. No progress ticks in journal — progress is pollable via `/remove/status`.
 
 **Why:** The journal must answer "did it start, did it finish, did it crash mid-delete" at a glance. If the journal shows `start` then `deleting 343 orphans` but no `done` — poweroff during delete. If it shows `start` then an error — API or streamer failure. Mid-operation detail (resolved IDs, orphan math, commit success) is only useful during the operation and lives in the status endpoint.
+
+## Remove endpoint: abort on partial resolution failure
+
+**Decision:** If any artist/query resolution fails during the re-resolve step, abort the entire operation, log each failure to journalctl, and roll back the file change. Never proceed to deletion with an incomplete wanted set.
+
+**Why:** The resolver swallows HTTP errors and returns empty sets for failed entries. An incomplete wanted set means galleries that ARE still wanted could appear as orphans and get deleted. This is silent data loss. The only safe response to a flaky hitomi API is to refuse to delete and let the user retry later.

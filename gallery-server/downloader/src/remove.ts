@@ -147,29 +147,37 @@ async function resolveRemovedIds(
     }
 }
 
+interface ResolveResult {
+    wantedIds: Set<number>;
+    errors: string[];
+}
+
 async function resolveRemainingManifest(
     artistsPath: string,
     queriesPath: string,
-): Promise<Set<number>> {
+): Promise<ResolveResult> {
     const manifest = loadManifest(artistsPath, queriesPath);
     const totalEntries = manifest.artists.length + manifest.queries.length;
     currentRemove.resolvedTotal = totalEntries;
 
     const wantedIds = new Set<number>();
+    const errors: string[] = [];
 
     for (const entry of manifest.artists) {
         const result = await resolveArtistEntry(entry.namespace, entry.value, entry.language);
         for (const id of result.ids) wantedIds.add(id);
+        errors.push(...result.errors);
         currentRemove.resolvedCount++;
     }
 
     for (const entry of manifest.queries) {
         const result = await resolveQuery(entry.raw);
         for (const id of result.ids) wantedIds.add(id);
+        errors.push(...result.errors);
         currentRemove.resolvedCount++;
     }
 
-    return wantedIds;
+    return { wantedIds, errors };
 }
 
 export async function runRemove(
@@ -217,8 +225,18 @@ export async function runRemove(
         }
 
         currentRemove.phase = 'resolving-remaining';
-        const wantedIds = await resolveRemainingManifest(artistsPath, queriesPath);
+        const { wantedIds, errors: resolveErrors } = await resolveRemainingManifest(artistsPath, queriesPath);
         currentRemove.wantedCount = wantedIds.size;
+
+        if (resolveErrors.length > 0) {
+            restoreFile(filePath, originalContent);
+            originalContent = null;
+            currentRemove.phase = 'error';
+            currentRemove.error = `${resolveErrors.length} resolution failures, aborting`;
+            for (const e of resolveErrors) logError(e);
+            logError('incomplete wanted set, rolled back file change');
+            return currentRemove;
+        }
 
         currentRemove.phase = 'diffing';
         const localIds = getLocalIds();
