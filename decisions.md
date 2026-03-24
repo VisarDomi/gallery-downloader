@@ -26,10 +26,8 @@
 
 **Why:** Re-resolving the full remaining manifest requires ~200 HTTP requests to hitomi with 100ms delays — roughly 20 seconds minimum. A synchronous HTTP request would time out or block the UI.
 
-## Remove endpoint: logging split
+## Remove endpoint: journalctl logging
 
-**Decision:** Two channels:
-- `story()` / `storyError()` → `console.log` / `console.error` → journalctl. Narrative events only: started, resolved X IDs, removed line, Y orphans, deleted Z, committed, done in Ns.
-- `progress()` → socketService only. Real-time ticks (40/195) for the live UI. Never hits journalctl.
+**Decision:** Only three log lines in the happy path: `start`, `deleting N orphans`, `done`. Errors go to `console.error`. No progress ticks in journal — progress is pollable via `/remove/status`.
 
-**Why:** journalctl is already the log store — no need for a separate file. The problem was signal-to-noise: a single `log()` that writes everywhere puts progress ticks into journalctl alongside story events, making post-mortem debugging require filtering through hundreds of "Resolving: 40/195" lines to find "orphans: 343". Splitting story from progress means `journalctl -u gallery-downloader` reads as a clean narrative.
+**Why:** The journal must answer "did it start, did it finish, did it crash mid-delete" at a glance. If the journal shows `start` then `deleting 343 orphans` but no `done` — poweroff during delete. If it shows `start` then an error — API or streamer failure. Mid-operation detail (resolved IDs, orphan math, commit success) is only useful during the operation and lives in the status endpoint.
