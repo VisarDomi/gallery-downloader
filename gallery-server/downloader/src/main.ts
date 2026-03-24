@@ -10,6 +10,7 @@ import { CONFIG } from './config.js';
 import { socketService } from './socket.service.js';
 import { queueManager } from './queue.manager.js';
 import { runSync, getSyncStatus } from './sync.js';
+import { runRemove, getRemoveStatus } from './remove.js';
 import { loadManifest } from './manifest.js';
 
 const app = express();
@@ -99,6 +100,25 @@ app.post('/sync', async (_req, res) => {
 
 app.get('/sync/status', (_req, res) => {
     res.json(getSyncStatus());
+});
+
+// --- REMOVE ROUTES ---
+app.post('/remove', (req, res) => {
+    const { file, line } = req.body;
+    if (file !== 'artists' && file !== 'queries') {
+        res.status(400).json({ error: 'file must be "artists" or "queries"' });
+        return;
+    }
+    if (!line || typeof line !== 'string') {
+        res.status(400).json({ error: 'line must be a non-empty string' });
+        return;
+    }
+    res.json({ status: 'started' });
+    runRemove(file, line.trim(), ARTISTS_PATH, QUERIES_PATH).catch(console.error);
+});
+
+app.get('/remove/status', (_req, res) => {
+    res.json(getRemoveStatus());
 });
 
 // --- QUERIES ENDPOINT (for frontend saved searches) ---
