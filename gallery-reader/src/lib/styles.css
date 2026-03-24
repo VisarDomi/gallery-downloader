@@ -244,6 +244,11 @@ html, body {
     cursor: pointer;
     line-height: 1;
     transition: transform 0.1s;
+    min-width: 44px;
+    min-height: 44px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 
 .row-action-btn:active {
