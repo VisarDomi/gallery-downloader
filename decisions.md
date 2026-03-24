@@ -1,5 +1,13 @@
 # Architecture Decisions
 
+## Sync model: artists.txt and queries.txt are unioned
+
+**Decision:** `artists.txt` and `queries.txt` are the two sources of truth for what galleries to download. Sync resolves both independently and takes their union — a gallery is wanted if it matches ANY artist entry OR ANY query.
+
+**Why:** Artists and queries serve different purposes. Artists track a creator's full catalog regardless of tags. Queries find galleries matching complex tag filters regardless of creator. The union means each file is self-contained: adding an artist pulls everything by that artist, even galleries that a query would exclude (e.g., anthologies excluded by `-tag:anthology` in queries still get pulled in if a tracked artist contributed to them). This is intentional — if you track an artist, you want their work.
+
+**Implication for removal:** A gallery can only be considered an orphan if it's no longer wanted by ANY entry in EITHER file. Removing an artist doesn't orphan galleries that a query still matches, and vice versa. The remove endpoint must re-resolve the entire remaining manifest (both files) to compute the still-wanted set before it can safely identify orphans.
+
 ## Remove endpoint: ownership boundaries
 
 **Decision:** The remove orchestrator lives in the downloader. It computes WHAT to delete, then delegates actual deletion to the streamer via its existing `POST /api/delete` endpoint.
