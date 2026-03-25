@@ -371,6 +371,46 @@ html, body {
     color: #4af626;
 }
 
+.modal-value-entry {
+    display: inline;
+    white-space: nowrap;
+}
+
+.artist-toggle {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 22px;
+    height: 22px;
+    border-radius: 50%;
+    font-size: 14px;
+    font-weight: bold;
+    margin-left: 2px;
+    vertical-align: middle;
+    line-height: 1;
+}
+
+.artist-toggle.tracked {
+    background: #cc2200;
+    color: white;
+}
+
+.artist-toggle.untracked {
+    background: #227722;
+    color: white;
+}
+
+.artist-toggle.processing {
+    background: #555;
+    color: #aaa;
+    font-size: 10px;
+    letter-spacing: -1px;
+}
+
+.artist-toggle:active {
+    opacity: 0.7;
+}
+
 .tag-cloud {
     display: flex;
     flex-wrap: wrap;

@@ -23,4 +23,8 @@ export const API = {
     SPRITE: (galleryId: number, stripIndex: number) => `/api/sprite/${galleryId}/${stripIndex}`,
     MEDIA: (path: string) => `/media/${path.split('/').map(encodeURIComponent).join('/')}`,
     DELETE: () => '/api/delete',
+    ARTISTS: () => '/artists',
+    ARTISTS_ADD: () => '/artists/add',
+    REMOVE: () => '/remove',
+    REMOVE_STATUS: () => '/remove/status',
 };

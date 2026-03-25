@@ -63,6 +63,16 @@ export default defineConfig({
 				secure: false,
 				changeOrigin: true,
 			},
+			'/artists': {
+				target: 'https://localhost:11558',
+				secure: false,
+				changeOrigin: true,
+			},
+			'/remove': {
+				target: 'https://localhost:11558',
+				secure: false,
+				changeOrigin: true,
+			},
 		},
 	},
 });

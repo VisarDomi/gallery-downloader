@@ -62,11 +62,20 @@
                         <span class="modal-value">
                             {#each gallery.artist as artist, i}
                                 {#if i > 0}, {/if}
-                                {#if onSearchFilter}
-                                    <button class="modal-value-link" onclick={() => onSearchFilter({ artist, language: gallery!.language })}>{artist}</button>
-                                {:else}
-                                    {artist}
-                                {/if}
+                                <span class="modal-value-entry">
+                                    {#if onSearchFilter}
+                                        <button class="modal-value-link" onclick={() => onSearchFilter({ artist, language: gallery!.language })}>{artist}</button>
+                                    {:else}
+                                        {artist}
+                                    {/if}
+                                    {#if appState.artists.isProcessing('artist', artist)}
+                                        <span class="artist-toggle processing">...</span>
+                                    {:else if appState.artists.isTracked('artist', artist)}
+                                        <button class="artist-toggle tracked" onclick={() => appState.artists.enqueue('artist', artist)}>&minus;</button>
+                                    {:else}
+                                        <button class="artist-toggle untracked" onclick={() => appState.artists.enqueue('artist', artist)}>+</button>
+                                    {/if}
+                                </span>
                             {/each}
                         </span>
                     </div>
@@ -77,11 +86,20 @@
                         <span class="modal-value">
                             {#each gallery.group as group, i}
                                 {#if i > 0}, {/if}
-                                {#if onSearchFilter}
-                                    <button class="modal-value-link" onclick={() => onSearchFilter({ group, language: gallery!.language })}>{group}</button>
-                                {:else}
-                                    {group}
-                                {/if}
+                                <span class="modal-value-entry">
+                                    {#if onSearchFilter}
+                                        <button class="modal-value-link" onclick={() => onSearchFilter({ group, language: gallery!.language })}>{group}</button>
+                                    {:else}
+                                        {group}
+                                    {/if}
+                                    {#if appState.artists.isProcessing('group', group)}
+                                        <span class="artist-toggle processing">...</span>
+                                    {:else if appState.artists.isTracked('group', group)}
+                                        <button class="artist-toggle tracked" onclick={() => appState.artists.enqueue('group', group)}>&minus;</button>
+                                    {:else}
+                                        <button class="artist-toggle untracked" onclick={() => appState.artists.enqueue('group', group)}>+</button>
+                                    {/if}
+                                </span>
                             {/each}
                         </span>
                     </div>

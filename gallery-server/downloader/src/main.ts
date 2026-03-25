@@ -10,7 +10,7 @@ import { CONFIG } from './config.js';
 import { socketService } from './socket.service.js';
 import { queueManager } from './queue.manager.js';
 import { runSync, getSyncStatus } from './sync.js';
-import { runRemove, getRemoveStatus } from './remove.js';
+import { runRemove, getRemoveStatus, gitCommit } from './remove.js';
 import { loadManifest } from './manifest.js';
 
 const app = express();
@@ -119,6 +119,49 @@ app.post('/remove', (req, res) => {
 
 app.get('/remove/status', (_req, res) => {
     res.json(getRemoveStatus());
+});
+
+// --- ARTISTS ENDPOINTS ---
+app.get('/artists', (_req, res) => {
+    const manifest = loadManifest(ARTISTS_PATH, QUERIES_PATH);
+    const entries = manifest.artists.map(a => `${a.namespace}:${a.value}`);
+    console.log(`[artists] GET /artists: ${entries.length} entries`);
+    res.json(entries);
+});
+
+app.post('/artists/add', (req, res) => {
+    const { line } = req.body;
+    if (!line || typeof line !== 'string') {
+        res.status(400).json({ error: 'line must be a non-empty string' });
+        return;
+    }
+
+    const trimmed = line.trim();
+    const colonIdx = trimmed.indexOf(':');
+    if (colonIdx === -1) {
+        res.status(400).json({ error: 'line must be namespace:value format' });
+        return;
+    }
+    const ns = trimmed.slice(0, colonIdx);
+    if (ns !== 'artist' && ns !== 'group') {
+        res.status(400).json({ error: 'namespace must be artist or group' });
+        return;
+    }
+
+    const content = fs.readFileSync(ARTISTS_PATH, 'utf-8');
+    const lines = content.split('\n').map(l => l.trim());
+    if (lines.includes(trimmed)) {
+        console.log(`[artists] add ${trimmed}: already_exists`);
+        res.json({ status: 'already_exists' });
+        return;
+    }
+
+    const separator = content.endsWith('\n') ? '' : '\n';
+    fs.appendFileSync(ARTISTS_PATH, `${separator}${trimmed}\n`);
+    gitCommit(ARTISTS_PATH, `add ${trimmed} to artists.txt`);
+
+    console.log(`[artists] added ${trimmed}`);
+    res.json({ status: 'added' });
 });
 
 // --- QUERIES ENDPOINT (for frontend saved searches) ---

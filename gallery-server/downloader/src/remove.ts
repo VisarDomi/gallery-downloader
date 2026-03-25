@@ -112,7 +112,7 @@ function requestDeletion(ids: number[]): Promise<{ deleted: number[]; skipped: {
     });
 }
 
-function gitCommit(filePath: string, message: string): boolean {
+export function gitCommit(filePath: string, message: string): boolean {
     const repoRoot = path.resolve(filePath, '..', '..');
     try {
         execSync(`git add ${JSON.stringify(filePath)}`, { cwd: repoRoot, stdio: 'pipe' });

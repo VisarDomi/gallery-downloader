@@ -9,6 +9,7 @@ import { ReaderState } from './reader.svelte.js';
 import { FavoritesState } from './favorites.svelte.js';
 import { SavedState } from './saved.svelte.js';
 import { DeleteState } from './delete.svelte.js';
+import { ArtistsState } from './artists.svelte.js';
 import { saveSession, loadSession, clearSession } from './session.js';
 
 class AppState {
@@ -20,6 +21,7 @@ class AppState {
     saved = new SavedState();
     reader: ReaderState;
     delete_: DeleteState;
+    artists: ArtistsState;
 
     private lastTick = Date.now();
     private tickInterval: ReturnType<typeof setInterval> | undefined;
@@ -31,6 +33,7 @@ class AppState {
             reader: this.reader,
             search: this.searchState,
         });
+        this.artists = new ArtistsState(this.toast, this.log);
         this.ui.onViewChange = () => this.persistSession();
     }
 
@@ -49,6 +52,7 @@ class AppState {
                 this.saved.init(),
                 this.favorites.init(),
                 this.reader.loadProgress(),
+                this.artists.init(),
             ]);
 
             api.refreshIndex().catch((e) =>
