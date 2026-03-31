@@ -95,6 +95,21 @@ export interface ResolveResult {
 }
 
 /**
+ * Fetch the ID set for a single tag token (e.g. "tag:anthology") in a language.
+ */
+export async function resolveTag(token: string, language: string): Promise<ResolveResult> {
+    const url = buildNozomiUrl(token, language);
+    const errors: string[] = [];
+    try {
+        const ids = await fetchNozomi(url);
+        return { ids, errors };
+    } catch (e) {
+        errors.push(`${token}: ${e instanceof Error ? e.message : String(e)}`);
+        return { ids: new Set(), errors };
+    }
+}
+
+/**
  * Resolve a single artist/group entry from artists.txt.
  * Returns all gallery IDs for that entry on hitomi.
  */

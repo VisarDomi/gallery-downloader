@@ -7,7 +7,7 @@
 
 import path from 'path';
 import { loadManifest } from './manifest.js';
-import { resolveArtistEntry, resolveQuery } from './resolver.js';
+import { resolveArtistEntry, resolveQuery, resolveTag } from './resolver.js';
 import { computeDiff } from './diff.js';
 import { queueManager } from './queue.manager.js';
 import { socketService } from './socket.service.js';
@@ -89,6 +89,16 @@ export async function runSync(artistsPath: string, queriesPath: string): Promise
         }
 
         log(`Artists resolved: ${wantedIds.size} unique IDs from ${manifest.artists.length} entries`);
+
+        // Phase 1b: Subtract anthologies from artist IDs
+        const anthologyResult = await resolveTag('tag:anthology', 'japanese');
+        if (anthologyResult.errors.length > 0) {
+            currentSync.errors.push(...anthologyResult.errors);
+        } else {
+            const before = wantedIds.size;
+            for (const id of anthologyResult.ids) wantedIds.delete(id);
+            log(`Anthology filter: ${before - wantedIds.size} removed (${wantedIds.size} remaining)`);
+        }
 
         // Phase 2: Resolve query entries
         currentSync.phase = 'resolving-queries';
