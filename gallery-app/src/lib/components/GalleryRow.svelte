@@ -84,8 +84,11 @@
             return;
         }
 
-        // Back view: keep current state for swipe preview
-        if (t === 'back') {
+        // Back view: keep current state for swipe preview.
+        // Exception: fresh mount (restore) has no thumbnails — fall through to
+        // set up observer and prewarm visible rows. IntersectionObserver works
+        // on visibility:hidden elements (spec §3.2.7 is purely geometric).
+        if (t === 'back' && loadedThumbs.size > 0) {
             teardownStripObserver();
             return;
         }
