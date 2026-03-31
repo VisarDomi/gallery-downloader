@@ -1,4 +1,5 @@
 import { SPRITE_THUMB_WIDTH } from '../config.js';
+import type { LogEmit } from '../services/LogService.js';
 import type { Gallery, GalleryListItem, PagePosition } from '../types.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
@@ -123,13 +124,57 @@ export class ReaderSession {
     }
 }
 
+// --- Texture budget tracking ---
+
+const BUDGET_THRESHOLDS = [100, 200, 300, 500, 750, 1000];
+let budgetTotalBytes = 0;
+let budgetStripCount = 0;
+const budgetCrossed = new Set<number>();
+let globalBlobCount = 0;
+
+function budgetAdd(decodedBytes: number, emit: LogEmit) {
+    budgetTotalBytes += decodedBytes;
+    budgetStripCount++;
+    const mb = budgetTotalBytes / (1024 * 1024);
+    for (const t of BUDGET_THRESHOLDS) {
+        if (mb >= t && !budgetCrossed.has(t)) {
+            budgetCrossed.add(t);
+            emit('texture-budget', {
+                totalBytes: budgetTotalBytes,
+                stripCount: budgetStripCount,
+                threshold: `${t}MB`,
+            });
+        }
+    }
+}
+
+function budgetRemove(decodedBytes: number) {
+    budgetTotalBytes = Math.max(0, budgetTotalBytes - decodedBytes);
+    budgetStripCount = Math.max(0, budgetStripCount - 1);
+    const mb = budgetTotalBytes / (1024 * 1024);
+    for (const t of BUDGET_THRESHOLDS) {
+        if (mb < t) budgetCrossed.delete(t);
+    }
+}
+
+// --- SpriteScope ---
+
+interface SpriteBlob {
+    url: string;
+    decodedBytes: number;
+}
+
 /** Owns sprite resources for one GalleryRow. */
 export class SpriteScope {
+    private getGalleryId: () => number;
+    private emit: LogEmit;
     abortController: AbortController;
-    readonly blobUrls: string[] = [];
+    readonly blobs: SpriteBlob[] = [];
     private _dropped = false;
 
-    constructor() {
+    constructor(getGalleryId: () => number, emit: LogEmit) {
+        this.getGalleryId = getGalleryId;
+        this.emit = emit;
         this.abortController = new AbortController();
     }
 
@@ -141,12 +186,14 @@ export class SpriteScope {
         return this._dropped;
     }
 
-    addBlobUrl(url: string) {
+    addBlobUrl(url: string, decodedBytes: number) {
         if (this._dropped) {
             URL.revokeObjectURL(url);
             return;
         }
-        this.blobUrls.push(url);
+        this.blobs.push({ url, decodedBytes });
+        globalBlobCount++;
+        budgetAdd(decodedBytes, this.emit);
     }
 
     /** Abort in-flight fetches without revoking existing blobs. */
@@ -162,10 +209,23 @@ export class SpriteScope {
 
     /** Full cleanup — abort + revoke all blobs. */
     drop() {
+        if (this._dropped) return;
         this._dropped = true;
         this.abortController.abort();
-        for (const url of this.blobUrls) URL.revokeObjectURL(url);
-        this.blobUrls.length = 0;
+        const revoked = this.blobs.length;
+        for (const b of this.blobs) {
+            URL.revokeObjectURL(b.url);
+            budgetRemove(b.decodedBytes);
+        }
+        globalBlobCount -= revoked;
+        if (revoked > 0) {
+            this.emit('blob-lifecycle', {
+                galleryId: this.getGalleryId(),
+                revoked,
+                totalActive: globalBlobCount,
+            });
+        }
+        this.blobs.length = 0;
     }
 }
 
@@ -282,15 +342,11 @@ export class ReaderState {
     }
 
     async restoreReader(galleryId: number, position: PagePosition): Promise<boolean> {
-        try {
-            const gallery = await api.getGallery(galleryId);
-            const s = new ReaderSession(gallery);
-            this.session = s;
-            this._lastSyncedPageIndex = -1;
-            this.currentPosition = position;
-            return true;
-        } catch {
-            return false;
-        }
+        const gallery = await api.getGallery(galleryId);
+        const s = new ReaderSession(gallery);
+        this.session = s;
+        this._lastSyncedPageIndex = -1;
+        this.currentPosition = position;
+        return true;
     }
 }

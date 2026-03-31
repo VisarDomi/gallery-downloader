@@ -1,15 +1,24 @@
 import * as db from '../services/db.js';
 import * as api from '../services/api.js';
+import type { LogEmit } from '../services/LogService.js';
 
 export class SavedState {
+    private emit: LogEmit;
     savedSearches = $state<string[]>([]);
     /** Queries from queries.txt — always shown, not deletable by user */
     defaultQueries = $state<string[]>([]);
 
+    constructor(emit: LogEmit) {
+        this.emit = emit;
+    }
+
     async init() {
         const [userSearches, defaults] = await Promise.all([
             db.getAllSavedSearches(),
-            api.fetchDefaultQueries().catch(() => []),
+            api.fetchDefaultQueries().catch((e) => {
+                this.emit('queries-load-failed', { error: String(e) });
+                return [];
+            }),
         ]);
         this.defaultQueries = defaults;
         this.savedSearches = userSearches;

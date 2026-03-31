@@ -1,13 +1,19 @@
 import { PAGE_SIZE } from '../config.js';
 import type { GalleryListItem } from '../types.js';
+import type { LogEmit } from '../services/LogService.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
 
 export class FavoritesState {
+    private emit: LogEmit;
     favoriteIds = $state<Set<number>>(new Set());
     favoriteQueries = $state<Record<number, string>>({});
     favoriteGalleries = $state<GalleryListItem[]>([]);
     currentPage = $state(0);
+
+    constructor(emit: LogEmit) {
+        this.emit = emit;
+    }
 
     get totalPages() {
         return Math.max(1, Math.ceil(this.favoriteGalleries.length / PAGE_SIZE));
@@ -67,7 +73,7 @@ export class FavoritesState {
             galleries.sort((a, b) => (idOrder.get(a.gallery_id) ?? 0) - (idOrder.get(b.gallery_id) ?? 0));
             this.favoriteGalleries = galleries;
         } catch (e) {
-            console.error('Failed to load favorites:', e);
+            this.emit('favorites-load-failed', { error: String(e) });
         }
     }
 

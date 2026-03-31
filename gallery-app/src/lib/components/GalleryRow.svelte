@@ -6,6 +6,8 @@
     import { SpriteScope } from '$lib/state/reader.svelte.js';
     import InfoModal from './InfoModal.svelte';
 
+    const emit = appState.log.emit;
+
     let {
         gallery,
         allowReplay = false,
@@ -17,10 +19,10 @@
     let stripContainer: HTMLDivElement | undefined = $state();
     let showInfoModal = $state(false);
 
-    // Sprite resource ownership
-    const scope = new SpriteScope();
-
     const id = $derived(gallery.gallery_id);
+
+    // Sprite resource ownership — getter avoids capturing reactive value (pitfall #3)
+    const scope = new SpriteScope(() => id, emit);
     const thumbCount = $derived(gallery.thumb_count || 0);
     const stripCount = $derived(Math.ceil(thumbCount / MAX_THUMBS_PER_STRIP));
 
@@ -45,9 +47,22 @@
                 if (!res.ok) return;
                 const blob = await res.blob();
                 const url = URL.createObjectURL(blob);
-                scope.addBlobUrl(url);
+                const thumbsInStrip = Math.min(MAX_THUMBS_PER_STRIP, thumbCount - stripIdx * MAX_THUMBS_PER_STRIP);
+                const width = thumbsInStrip * SPRITE_THUMB_WIDTH;
+                const decodedBytes = width * SPRITE_THUMB_HEIGHT * 4;
+                scope.addBlobUrl(url, decodedBytes);
                 if (scope.isDropped) return;
+                const t0 = performance.now();
                 img.src = url;
+                img.decode().then(() => {
+                    emit('sprite-load', {
+                        galleryId: id,
+                        stripIdx,
+                        width,
+                        decodedBytes,
+                        decodeMs: Math.round(performance.now() - t0),
+                    });
+                }).catch(() => {});
                 return;
             } catch {
                 return; // aborted or network error
@@ -58,6 +73,7 @@
     function fetchSprites() {
         scope.abort();
         scope.refresh();
+        emit('sprite-fetch', { galleryId: id, stripCount });
         const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
         if (!imgs) return;
 

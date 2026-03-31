@@ -1,6 +1,6 @@
 import * as api from '../services/api.js';
 import type { ToastState } from './toast.svelte.js';
-import type { LogService } from '../services/LogService.js';
+import type { LogEmit } from '../services/LogService.js';
 
 interface ArtistOp {
     type: 'add' | 'remove';
@@ -13,20 +13,20 @@ export class ArtistsState {
     private queue: ArtistOp[] = [];
     private draining = false;
     private toast: ToastState;
-    private log: LogService;
+    private emit: LogEmit;
 
-    constructor(toast: ToastState, log: LogService) {
+    constructor(toast: ToastState, emit: LogEmit) {
         this.toast = toast;
-        this.log = log;
+        this.emit = emit;
     }
 
     async init() {
         try {
             const entries = await api.getTrackedArtists();
             this.tracked = new Set(entries);
-            this.log.log('artists-loaded', { count: entries.length });
+            this.emit('artists-loaded', { count: entries.length });
         } catch (e) {
-            this.log.log('artists-load-failed', { error: String(e) });
+            this.emit('artists-load-failed', { error: String(e) });
         }
     }
 
@@ -48,7 +48,7 @@ export class ArtistsState {
         if (this.processing.has(line)) return;
 
         const type = this.tracked.has(line) ? 'remove' : 'add';
-        this.log.log('artists-enqueue', { type, line });
+        this.emit('artists-enqueue', { type, line });
         this.processing = new Set([...this.processing, line]);
         this.queue.push({ type, line });
         this.drain();
@@ -63,21 +63,21 @@ export class ArtistsState {
             try {
                 if (op.type === 'add') {
                     const result = await api.addArtist(op.line);
-                    this.log.log('artists-add-ok', { line: op.line, status: result.status });
+                    this.emit('artists-add-ok', { line: op.line, status: result.status });
                     this.tracked = new Set([...this.tracked, op.line]);
                     this.toast.show(`Added ${op.line}`);
                 } else {
-                    this.log.log('artists-remove-start', { line: op.line });
+                    this.emit('artists-remove-start', { line: op.line });
                     await api.removeArtist(op.line);
                     await this.pollRemoveUntilDone();
-                    this.log.log('artists-remove-ok', { line: op.line });
+                    this.emit('artists-remove-ok', { line: op.line });
                     const next = new Set(this.tracked);
                     next.delete(op.line);
                     this.tracked = next;
                     this.toast.show(`Removed ${op.line}`);
                 }
             } catch (e) {
-                this.log.log('artists-op-failed', { type: op.type, line: op.line, error: String(e) });
+                this.emit('artists-op-failed', { type: op.type, line: op.line, error: String(e) });
                 this.toast.show(`Failed: ${op.line} — ${e}`, 3000);
             }
             const nextProcessing = new Set(this.processing);
@@ -93,7 +93,7 @@ export class ArtistsState {
 
         while (true) {
             const status = await api.getRemoveStatus();
-            this.log.log('artists-remove-poll', { phase: status.phase });
+            this.emit('artists-remove-poll', { phase: status.phase });
             if (status.phase === 'done' || status.phase === 'idle') return;
             if (status.phase === 'error') {
                 throw new Error(status.error || 'Remove failed');

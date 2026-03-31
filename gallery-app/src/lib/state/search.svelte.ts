@@ -1,8 +1,10 @@
 import { PAGE_SIZE } from '../config.js';
 import type { GalleryListItem } from '../types.js';
+import type { LogEmit } from '../services/LogService.js';
 import * as api from '../services/api.js';
 
 export class SearchState {
+    private emit: LogEmit;
     allGalleries = $state<GalleryListItem[]>([]);
     currentQuery = $state('');
     currentPage = $state(0);
@@ -14,6 +16,10 @@ export class SearchState {
     availableLanguages = $state<[string, number][]>([]);
     availableArtists = $state<[string, number][]>([]);
     availableGroups = $state<[string, number][]>([]);
+
+    constructor(emit: LogEmit) {
+        this.emit = emit;
+    }
 
     get totalPages() {
         return Math.max(1, Math.ceil(this.allGalleries.length / PAGE_SIZE));
@@ -41,7 +47,7 @@ export class SearchState {
             this.availableArtists = data.artists;
             this.availableGroups = data.groups;
         } catch (e) {
-            console.error('Failed to load filter options:', e);
+            this.emit('filter-load-failed', { error: String(e) });
         }
     }
 
@@ -54,7 +60,7 @@ export class SearchState {
             const data = await api.search(this.fullQuery);
             this.allGalleries = data.items;
         } catch (e) {
-            console.error('Search failed:', e);
+            this.emit('search-failed', { error: String(e) });
             this.allGalleries = [];
         } finally {
             this.isLoading = false;

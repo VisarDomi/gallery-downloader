@@ -68,15 +68,9 @@
         appState.reader.saveProgress(s.gallery.gallery_id, { pageIndex: idx, fraction });
     }
 
-    // Reactive: when session changes, set up observers and scroll to start position
-    $effect(() => {
-        const s = session;
-        if (!s) return;
-        const g = s.gallery;
-
-        const initialPosition = untrack(() => startPosition);
-
+    function setupSession(s: ReaderSession, initialPosition: import('$lib/types.js').PagePosition) {
         suppressSave = true;
+        const g = s.gallery;
         pageElements.length = g.count;
 
         const viewReader = getReaderRoot();
@@ -156,6 +150,14 @@
             s.addTimer(timerId);
         });
         s.addRaf(rafId);
+    }
+
+    // Reactive: when session changes, set up observers and scroll to start position
+    $effect(() => {
+        const s = session;
+        if (!s) return;
+
+        setupSession(s, untrack(() => startPosition));
 
         return () => {
             if (!s.isDropped) s.drop();

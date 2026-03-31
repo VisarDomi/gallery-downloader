@@ -15,10 +15,10 @@ import { saveSession, loadSession, clearSession } from './session.js';
 class AppState {
     readonly log = new LogService();
     toast = new ToastState();
-    ui = new UIState();
-    searchState = new SearchState();
-    favorites = new FavoritesState();
-    saved = new SavedState();
+    ui: UIState;
+    searchState: SearchState;
+    favorites: FavoritesState;
+    saved: SavedState;
     reader: ReaderState;
     delete_: DeleteState;
     artists: ArtistsState;
@@ -27,13 +27,18 @@ class AppState {
     private tickInterval: ReturnType<typeof setInterval> | undefined;
 
     constructor() {
+        const emit = this.log.emit;
+        this.ui = new UIState(emit);
+        this.searchState = new SearchState(emit);
+        this.favorites = new FavoritesState(emit);
+        this.saved = new SavedState(emit);
         this.reader = new ReaderState(this.ui);
         this.delete_ = new DeleteState({
             favorites: this.favorites,
             reader: this.reader,
             search: this.searchState,
         });
-        this.artists = new ArtistsState(this.toast, this.log);
+        this.artists = new ArtistsState(this.toast, emit);
         this.ui.onViewChange = () => this.persistSession();
     }
 
@@ -42,10 +47,10 @@ class AppState {
 
         // LogService owns global error handlers — start first so crashes during init are captured
         this.log.start();
-        this.log.log('boot-start');
+        this.log.emit('boot-start');
 
         // Wire db module's logger to our LogService
-        setDbLogger((op, error) => this.log.log('db-error', { op, error }));
+        setDbLogger((op, error) => this.log.emit('db-error', { op, error }));
 
         try {
             await Promise.all([
@@ -56,7 +61,7 @@ class AppState {
             ]);
 
             api.refreshIndex().catch((e) =>
-                this.log.log('refresh-index-failed', { message: String(e) }),
+                this.log.emit('refresh-index-failed', { message: String(e) }),
             );
 
             await this.searchState.loadFilterOptions();
@@ -65,9 +70,9 @@ class AppState {
 
             this.setupResumeDetection();
 
-            this.log.log('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
+            this.log.emit('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
         } catch (e) {
-            this.log.log('init-crash', {
+            this.log.emit('init-crash', {
                 message: String((e as Error)?.message ?? e),
                 stack: (e as Error)?.stack ?? '',
                 ms: Date.now() - t0,
@@ -122,12 +127,12 @@ class AppState {
     private async restoreSession() {
         const snap = loadSession();
         if (!snap) {
-            this.log.log('restore-none');
+            this.log.emit('restore-none');
             await this.searchState.search('');
             return;
         }
 
-        this.log.log('restore-start', {
+        this.log.emit('restore-start', {
             view: snap.viewMode,
             galleryId: snap.activeGalleryId ?? null,
             hasQuery: !!snap.searchQuery,
@@ -152,15 +157,16 @@ class AppState {
                     // IDB progress is the single owner of persistent position data —
                     // always fresher than the session snapshot (which only updates on view changes)
                     const position = this.reader.getProgress(snap.activeGalleryId);
-                    const ok = await this.reader.restoreReader(snap.activeGalleryId, position);
-                    if (ok) {
+                    try {
+                        await this.reader.restoreReader(snap.activeGalleryId, position);
                         this.ui.setViewDirect('reader', snap.viewStack);
                         await this.prepareBackViews(snap);
                         this.persistSession();
-                        this.log.log('restore-ok', { view: 'reader', galleryId: snap.activeGalleryId });
+                        this.log.emit('restore-ok', { view: 'reader', galleryId: snap.activeGalleryId });
                         return;
+                    } catch (e) {
+                        this.log.emit('restore-fallback', { view: 'reader', reason: String((e as Error)?.message ?? e) });
                     }
-                    this.log.log('restore-fallback', { view: 'reader', reason: 'gallery-load-failed' });
                 }
                 // Fallback to list
                 break;
@@ -172,13 +178,13 @@ class AppState {
                     this.favorites.currentPage = snap.favoritesPage;
                 }
                 this.persistSession();
-                this.log.log('restore-ok', { view: 'favorites' });
+                this.log.emit('restore-ok', { view: 'favorites' });
                 return;
 
             case 'saved':
                 this.ui.setViewDirect('saved', snap.viewStack);
                 this.persistSession();
-                this.log.log('restore-ok', { view: 'saved' });
+                this.log.emit('restore-ok', { view: 'saved' });
                 return;
 
             case 'list':
@@ -187,7 +193,7 @@ class AppState {
         }
 
         this.persistSession();
-        this.log.log('restore-ok', { view: 'list' });
+        this.log.emit('restore-ok', { view: 'list' });
     }
 
     /**
@@ -268,14 +274,14 @@ class AppState {
         const elapsed = Date.now() - this.lastTick;
 
         if (elapsed > DEEP_SLEEP_MS) {
-            this.log.log('resume', { kind: 'deep-sleep', elapsedMs: elapsed });
+            this.log.emit('resume', { kind: 'deep-sleep', elapsedMs: elapsed });
             this.toast.show('Session expired, refreshing...');
             this.searchState.search(this.searchState.currentQuery);
             return;
         }
 
         if (elapsed > RESUME_RECOVERY_MS) {
-            this.log.log('resume', { kind: 'recovery', elapsedMs: elapsed });
+            this.log.emit('resume', { kind: 'recovery', elapsedMs: elapsed });
             this.searchState.search(this.searchState.currentQuery);
         }
     }
