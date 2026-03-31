@@ -142,11 +142,15 @@
         const t = tier;
         if (!rowElement || !stripContainer) return;
 
-        // Non-active views: suspend everything, no viewport observation
-        if (t !== 'active') {
+        // Deep views: suspend everything
+        if (t === 'deep') {
             suspendRow();
             return;
         }
+
+        // Back view: keep current state — visible rows stay owned for swipe preview,
+        // off-screen rows stay suspended. Observer disconnected (cleanup runs).
+        if (t === 'back') return;
 
         // Active view: IntersectionObserver gates sprite decode by viewport proximity
         const viewLayer = rowElement.closest('.view-layer') as HTMLElement | null;
