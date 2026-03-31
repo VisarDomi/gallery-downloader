@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { onMount, onDestroy } from 'svelte';
+    import { onMount, onDestroy, getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { API, SPRITE_THUMB_WIDTH, SPRITE_THUMB_HEIGHT, MAX_THUMBS_PER_STRIP } from '$lib/config.js';
     import type { GalleryListItem } from '$lib/types.js';
@@ -23,6 +23,10 @@
 
     // Sprite resource ownership — getter avoids capturing reactive value (pitfall #3)
     const scope = new SpriteScope(() => id, emit);
+
+    const viewId = getContext<string>('viewId');
+    const tier = $derived(appState.ui.getViewTier(viewId));
+
     const thumbCount = $derived(gallery.thumb_count || 0);
     const stripCount = $derived(Math.ceil(thumbCount / MAX_THUMBS_PER_STRIP));
 
@@ -50,7 +54,7 @@
                 const thumbsInStrip = Math.min(MAX_THUMBS_PER_STRIP, thumbCount - stripIdx * MAX_THUMBS_PER_STRIP);
                 const width = thumbsInStrip * SPRITE_THUMB_WIDTH;
                 const decodedBytes = width * SPRITE_THUMB_HEIGHT * 4;
-                scope.addBlobUrl(url, decodedBytes);
+                scope.addBlobUrl(stripIdx, url, decodedBytes);
                 if (scope.isDropped) return;
                 const t0 = performance.now();
                 img.src = url;
@@ -98,7 +102,28 @@
     });
 
     $effect(() => {
-        if (stripContainer) {
+        const t = tier;
+        if (!stripContainer) return;
+
+        if (t === 'deep') {
+            if (scope.isOwned) {
+                scope.suspend();
+                const imgs = stripContainer.querySelectorAll<HTMLImageElement>('img');
+                for (const img of imgs) img.removeAttribute('src');
+            }
+            return;
+        }
+
+        // Active or back — resume from suspension or do initial load
+        if (scope.isSuspended) {
+            const entries = scope.resume();
+            const imgs = stripContainer.querySelectorAll<HTMLImageElement>('img');
+            for (const [stripIdx, blob] of entries) {
+                const img = imgs[stripIdx];
+                if (img) img.src = blob.url;
+            }
+        }
+        if (!scope.isDropped && scope.blobs.size < stripCount) {
             fetchSprites();
         }
     });

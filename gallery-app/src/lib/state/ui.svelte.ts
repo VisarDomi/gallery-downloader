@@ -41,6 +41,12 @@ export class UIState {
         this.viewStack = stack;
     }
 
+    getViewTier(viewId: string): 'active' | 'back' | 'deep' {
+        if (this.viewMode === viewId) return 'active';
+        if (this.peekBack() === viewId) return 'back';
+        return 'deep';
+    }
+
     private measureTransition(from: string, to: string) {
         const t0 = performance.now();
         requestAnimationFrame(() => {

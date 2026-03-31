@@ -159,18 +159,23 @@ function budgetRemove(decodedBytes: number) {
 
 // --- SpriteScope ---
 
+type SpriteState = 'empty' | 'owned' | 'suspended' | 'dropped';
+
 interface SpriteBlob {
     url: string;
     decodedBytes: number;
 }
 
-/** Owns sprite resources for one GalleryRow. */
+/** Owns sprite resources for one GalleryRow. Rust-inspired ownership model:
+ *  - owned: GPU textures decoded + displayed (active/back view)
+ *  - suspended: blob URLs kept in JS heap, GPU textures freed (deep view)
+ *  - dropped: everything revoked (component unmount) */
 export class SpriteScope {
     private getGalleryId: () => number;
     private emit: LogEmit;
     abortController: AbortController;
-    readonly blobs: SpriteBlob[] = [];
-    private _dropped = false;
+    readonly blobs = new Map<number, SpriteBlob>();
+    private _state: SpriteState = 'empty';
 
     constructor(getGalleryId: () => number, emit: LogEmit) {
         this.getGalleryId = getGalleryId;
@@ -183,15 +188,24 @@ export class SpriteScope {
     }
 
     get isDropped(): boolean {
-        return this._dropped;
+        return this._state === 'dropped';
     }
 
-    addBlobUrl(url: string, decodedBytes: number) {
-        if (this._dropped) {
+    get isSuspended(): boolean {
+        return this._state === 'suspended';
+    }
+
+    get isOwned(): boolean {
+        return this._state === 'owned';
+    }
+
+    addBlobUrl(stripIdx: number, url: string, decodedBytes: number) {
+        if (this._state === 'dropped' || this._state === 'suspended') {
             URL.revokeObjectURL(url);
             return;
         }
-        this.blobs.push({ url, decodedBytes });
+        this.blobs.set(stripIdx, { url, decodedBytes });
+        this._state = 'owned';
         globalBlobCount++;
         budgetAdd(decodedBytes, this.emit);
     }
@@ -207,17 +221,61 @@ export class SpriteScope {
         this.abortController = new AbortController();
     }
 
-    /** Full cleanup — abort + revoke all blobs. */
-    drop() {
-        if (this._dropped) return;
-        this._dropped = true;
+    /** Suspend: cancel in-flight fetches, free GPU textures, keep blob URLs in JS heap. */
+    suspend() {
+        if (this._state !== 'owned' && this._state !== 'empty') return;
         this.abortController.abort();
-        const revoked = this.blobs.length;
-        for (const b of this.blobs) {
-            URL.revokeObjectURL(b.url);
-            budgetRemove(b.decodedBytes);
+        this.abortController = new AbortController();
+        let freedBytes = 0;
+        for (const blob of this.blobs.values()) {
+            budgetRemove(blob.decodedBytes);
+            freedBytes += blob.decodedBytes;
+        }
+        this._state = 'suspended';
+        if (freedBytes > 0) {
+            this.emit('sprite-suspend', {
+                galleryId: this.getGalleryId(),
+                strips: this.blobs.size,
+                freedBytes,
+            });
+        }
+    }
+
+    /** Resume: restore GPU textures from cached blob URLs. Returns entries for DOM re-set. */
+    resume(): Map<number, SpriteBlob> {
+        if (this._state !== 'suspended') return this.blobs;
+        let restoredBytes = 0;
+        for (const blob of this.blobs.values()) {
+            budgetAdd(blob.decodedBytes, this.emit);
+            restoredBytes += blob.decodedBytes;
+        }
+        this._state = 'owned';
+        this.abortController = new AbortController();
+        if (restoredBytes > 0) {
+            this.emit('sprite-resume', {
+                galleryId: this.getGalleryId(),
+                strips: this.blobs.size,
+                restoredBytes,
+            });
+        }
+        return this.blobs;
+    }
+
+    /** Full cleanup — abort, revoke all blobs, free everything. */
+    drop() {
+        if (this._state === 'dropped') return;
+        this.abortController.abort();
+        const revoked = this.blobs.size;
+        if (this._state === 'owned') {
+            for (const blob of this.blobs.values()) {
+                budgetRemove(blob.decodedBytes);
+            }
+        }
+        for (const blob of this.blobs.values()) {
+            URL.revokeObjectURL(blob.url);
         }
         globalBlobCount -= revoked;
+        this._state = 'dropped';
         if (revoked > 0) {
             this.emit('blob-lifecycle', {
                 galleryId: this.getGalleryId(),
@@ -225,7 +283,7 @@ export class SpriteScope {
                 totalActive: globalBlobCount,
             });
         }
-        this.blobs.length = 0;
+        this.blobs.clear();
     }
 }
 

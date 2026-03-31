@@ -20,6 +20,9 @@ export type LogEvent =
     | { event: 'view-transition'; from: string; to: string; frameMs: number }
     // Performance — blobs
     | { event: 'blob-lifecycle'; galleryId: number; revoked: number; totalActive: number }
+    // Sprite ownership
+    | { event: 'sprite-suspend'; galleryId: number; strips: number; freedBytes: number }
+    | { event: 'sprite-resume'; galleryId: number; strips: number; restoredBytes: number }
     // Search & favorites
     | { event: 'filter-load-failed'; error: string }
     | { event: 'search-failed'; error: string }

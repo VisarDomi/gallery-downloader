@@ -1,8 +1,11 @@
 <script lang="ts">
+    import { setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
     import GalleryList from '$lib/components/GalleryList.svelte';
     import Pagination from '$lib/components/Pagination.svelte';
+
+    setContext('viewId', 'list');
 
     const galleries = $derived(appState.searchState.paginatedGalleries);
     const total = $derived(appState.searchState.allGalleries.length);
