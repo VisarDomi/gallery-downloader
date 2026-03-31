@@ -27,6 +27,7 @@ class AppState {
     private lastTick = Date.now();
     private tickInterval: ReturnType<typeof setInterval> | undefined;
     private cleanups: (() => void)[] = [];
+    private scrollTimer: ReturnType<typeof setTimeout> | undefined;
 
     constructor() {
         const emit = this.log.emit;
@@ -90,6 +91,7 @@ class AppState {
             await this.restoreSession();
 
             this.setupResumeDetection();
+            this.setupScrollPersistence();
 
             this.log.emit('boot-ready', { ms: Date.now() - t0, view: this.ui.viewMode });
         } catch (e) {
@@ -139,7 +141,15 @@ class AppState {
 
     // -- Session persistence --
 
-    private persistSession() {
+    /** Debounced session persist — call freely, writes at most every 500ms. */
+    persistSession() {
+        clearTimeout(this.scrollTimer);
+        this.scrollTimer = setTimeout(() => this.flushSession(), 500);
+    }
+
+    /** Immediate write — used by persistSession debounce and destroy. */
+    private flushSession() {
+        clearTimeout(this.scrollTimer);
         saveSession({
             viewMode: this.ui.viewMode,
             viewStack: this.ui.viewStack,
@@ -147,6 +157,8 @@ class AppState {
             searchQuery: this.searchState.fullQuery || undefined,
             searchPage: this.searchState.currentPage || undefined,
             favoritesPage: this.favorites.currentPage || undefined,
+            listScroll: document.getElementById('view-list')?.scrollTop || undefined,
+            favoritesScroll: document.getElementById('view-favorites')?.scrollTop || undefined,
         });
     }
 
@@ -203,6 +215,7 @@ class AppState {
                 if (snap.favoritesPage) {
                     this.favorites.currentPage = snap.favoritesPage;
                 }
+                this.restoreScrollPositions(snap);
                 this.persistSession();
                 this.log.emit('restore-ok', { view: 'favorites' });
                 return;
@@ -218,8 +231,22 @@ class AppState {
                 break;
         }
 
+        this.restoreScrollPositions(snap);
         this.persistSession();
         this.log.emit('restore-ok', { view: 'list' });
+    }
+
+    private restoreScrollPositions(snap: import('./session.js').SessionSnapshot) {
+        requestAnimationFrame(() => {
+            if (snap.listScroll) {
+                const listView = document.getElementById('view-list');
+                if (listView) listView.scrollTop = snap.listScroll;
+            }
+            if (snap.favoritesScroll) {
+                const favsView = document.getElementById('view-favorites');
+                if (favsView) favsView.scrollTop = snap.favoritesScroll;
+            }
+        });
     }
 
     /**
@@ -262,6 +289,18 @@ class AppState {
         });
     }
 
+    private setupScrollPersistence() {
+        const onScroll = () => this.persistSession();
+        const listView = document.getElementById('view-list');
+        const favsView = document.getElementById('view-favorites');
+        listView?.addEventListener('scroll', onScroll, { passive: true });
+        favsView?.addEventListener('scroll', onScroll, { passive: true });
+        this.cleanups.push(
+            () => listView?.removeEventListener('scroll', onScroll),
+            () => favsView?.removeEventListener('scroll', onScroll),
+        );
+    }
+
     // -- Resume detection --
 
     private onVisibilityChange = () => {
@@ -286,8 +325,10 @@ class AppState {
     }
 
     destroy() {
+        this.flushSession();
         this.log.destroy();
         clearInterval(this.tickInterval);
+        clearTimeout(this.scrollTimer);
         document.removeEventListener('visibilitychange', this.onVisibilityChange);
         for (const fn of this.cleanups) fn();
         this.cleanups = [];

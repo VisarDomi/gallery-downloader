@@ -39,6 +39,7 @@
             appState.log.emit('page-change', { view: 'favorites', from: appState.favorites.currentPage, to: p, totalItems: total });
             appState.updateSentinel(`page-change:favorites:${p}`);
             appState.favorites.currentPage = p;
+            appState.persistSession();
             scrollToTop();
         }}
     />

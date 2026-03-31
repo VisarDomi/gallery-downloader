@@ -10,6 +10,8 @@ export interface SessionSnapshot {
     searchQuery?: string;
     searchPage?: number;
     favoritesPage?: number;
+    listScroll?: number;
+    favoritesScroll?: number;
 }
 
 export function saveSession(snapshot: SessionSnapshot): void {

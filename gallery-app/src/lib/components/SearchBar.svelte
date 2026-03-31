@@ -8,10 +8,11 @@
         return inputValue.replace(/\b(language|artist|group):\S+/g, '').trim();
     }
 
-    function handleSubmit(e: Event) {
+    async function handleSubmit(e: Event) {
         e.preventDefault();
         appState.ui.pushView('list');
-        appState.searchState.restoreFromQuery(inputValue);
+        await appState.searchState.restoreFromQuery(inputValue);
+        appState.persistSession();
     }
 
     function handleSave() {
@@ -60,7 +61,7 @@
     <div class="filter-row">
         <select
             bind:value={appState.searchState.selectedLanguage}
-            onchange={() => { appState.ui.pushView('list'); appState.searchState.search(freeText()); }}
+            onchange={async () => { appState.ui.pushView('list'); await appState.searchState.search(freeText()); appState.persistSession(); }}
         >
             <option value="">Any Language</option>
             {#each appState.searchState.availableLanguages as [lang, count]}
@@ -69,7 +70,7 @@
         </select>
         <select
             bind:value={appState.searchState.selectedArtist}
-            onchange={() => { appState.searchState.selectedGroup = ''; appState.ui.pushView('list'); appState.searchState.search(freeText()); }}
+            onchange={async () => { appState.searchState.selectedGroup = ''; appState.ui.pushView('list'); await appState.searchState.search(freeText()); appState.persistSession(); }}
         >
             <option value="">Any Artist</option>
             {#each appState.searchState.availableArtists as [artist, count]}
@@ -78,7 +79,7 @@
         </select>
         <select
             bind:value={appState.searchState.selectedGroup}
-            onchange={() => { appState.searchState.selectedArtist = ''; appState.ui.pushView('list'); appState.searchState.search(freeText()); }}
+            onchange={async () => { appState.searchState.selectedArtist = ''; appState.ui.pushView('list'); await appState.searchState.search(freeText()); appState.persistSession(); }}
         >
             <option value="">Any Group</option>
             {#each appState.searchState.availableGroups as [group, count]}

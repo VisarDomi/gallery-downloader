@@ -37,6 +37,7 @@
             appState.log.emit('page-change', { view: 'list', from: appState.searchState.currentPage, to: p, totalItems: total });
             appState.updateSentinel(`page-change:list:${p}`);
             appState.searchState.currentPage = p;
+            appState.persistSession();
             scrollToTop();
         }}
     />
