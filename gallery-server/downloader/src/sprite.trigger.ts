@@ -9,13 +9,9 @@ const SOCKET_PATH = '/run/user/1000/gallery-sprite-gen.sock';
 const THUMB_MARKER = '_thumb_';
 
 function findGalleryDir(galleryId: string): string | null {
-    const prefix = `${galleryId} `;
+    const fullPath = path.join(SOURCE_DIR, galleryId);
     try {
-        for (const entry of fs.readdirSync(SOURCE_DIR)) {
-            if (entry.startsWith(prefix) && fs.statSync(path.join(SOURCE_DIR, entry)).isDirectory()) {
-                return path.join(SOURCE_DIR, entry);
-            }
-        }
+        if (fs.statSync(fullPath).isDirectory()) return fullPath;
     } catch { /* dir not found */ }
     return null;
 }

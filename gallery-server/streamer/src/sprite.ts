@@ -16,10 +16,7 @@ const galleryDirCache = new Map<string, string>();
 try {
     for (const entry of fs.readdirSync(GALLERY_ROOT)) {
         if (entry.startsWith('.')) continue;
-        const spaceIdx = entry.indexOf(' ');
-        if (spaceIdx > 0) {
-            galleryDirCache.set(entry.slice(0, spaceIdx), path.join(GALLERY_ROOT, entry));
-        }
+        galleryDirCache.set(entry, path.join(GALLERY_ROOT, entry));
     }
     console.log(`[sprite] cached ${galleryDirCache.size} gallery dirs`);
 } catch { /* GALLERY_ROOT doesn't exist yet */ }
@@ -33,16 +30,12 @@ function findGalleryDir(galleryId: string): string | null {
     const cached = galleryDirCache.get(galleryId);
     if (cached) return cached;
 
-    // Cache miss — new gallery downloaded after startup. Scan once for this ID.
-    const prefix = `${galleryId} `;
+    // Cache miss — new gallery downloaded after startup
+    const fullPath = path.join(GALLERY_ROOT, galleryId);
     try {
-        for (const entry of fs.readdirSync(GALLERY_ROOT)) {
-            if (entry.startsWith(prefix)) {
-                const fullPath = path.join(GALLERY_ROOT, entry);
-                galleryDirCache.set(galleryId, fullPath);
-                return fullPath;
-            }
-        }
+        fs.statSync(fullPath);
+        galleryDirCache.set(galleryId, fullPath);
+        return fullPath;
     } catch { /* dir not found */ }
     return null;
 }

@@ -53,27 +53,20 @@ function removeMarker(galleryId: string) {
     try { fs.unlinkSync(markerPath(galleryId)); } catch (_) {}
 }
 
-function findGalleryDirByPrefix(galleryId: string): string | null {
+function findGalleryDir(galleryId: string): string | null {
+    const fullPath = path.join(SOURCE_DIR, galleryId);
     try {
-        for (const name of fs.readdirSync(SOURCE_DIR)) {
-            if (name.startsWith(galleryId + ' ') && fs.statSync(path.join(SOURCE_DIR, name)).isDirectory()) {
-                return path.join(SOURCE_DIR, name);
-            }
-        }
+        if (fs.statSync(fullPath).isDirectory()) return fullPath;
     } catch (_) {}
     return null;
 }
 
 function deletePartialGallery(galleryId: string) {
     // Delete gallery directory from disk
+    const dirPath = path.join(SOURCE_DIR, galleryId);
     try {
-        for (const name of fs.readdirSync(SOURCE_DIR)) {
-            if (name.startsWith(galleryId + ' ') && fs.statSync(path.join(SOURCE_DIR, name)).isDirectory()) {
-                fs.rmSync(path.join(SOURCE_DIR, name), { recursive: true, force: true });
-                console.log(`Deleted partial gallery dir: ${name}`);
-                break;
-            }
-        }
+        fs.rmSync(dirPath, { recursive: true, force: true });
+        console.log(`Deleted partial gallery dir: ${galleryId}`);
     } catch (_) {}
     // Remove archive entries
     const archivePath = hitomi.download.archivePath(CONFIG.WORKING_DIR);
@@ -143,7 +136,7 @@ class QueueManager {
         if (this.currentGalleryId) {
             createMarker(this.currentGalleryId);
             // Snapshot thumb count before download to detect changes
-            const galleryDir = findGalleryDirByPrefix(this.currentGalleryId);
+            const galleryDir = findGalleryDir(this.currentGalleryId);
             this.preDownloadThumbCount = galleryDir ? countThumbs(galleryDir) : 0;
         }
 

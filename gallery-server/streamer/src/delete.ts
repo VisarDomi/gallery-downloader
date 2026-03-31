@@ -15,13 +15,10 @@ interface SkippedEntry {
 }
 
 function findGalleryDir(galleryId: number): string | null {
-    const prefix = `${galleryId} `;
+    const fullPath = path.join(GALLERY_ROOT, String(galleryId));
     try {
-        for (const entry of fs.readdirSync(GALLERY_ROOT)) {
-            if (entry.startsWith(prefix)) {
-                return path.join(GALLERY_ROOT, entry);
-            }
-        }
+        fs.statSync(fullPath);
+        return fullPath;
     } catch { /* dir not found */ }
     return null;
 }

@@ -41,7 +41,7 @@ export const hitomi: Source = {
     url: 'https://hitomi.la',
     nsfw: true,
     gallerySubdir: 'gallery-dl/hitomi',
-    galleryIdPattern: /^(\d+) /,
+    galleryIdPattern: /^(\d+)$/,
     metadataFile: 'info.json',
     thumbnailMarker: '_thumb_',
     downloadingMarker: (id: string) => `.downloading-${id}`,

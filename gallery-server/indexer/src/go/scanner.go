@@ -500,12 +500,7 @@ func normalizeTags(info InfoJSON) []TagEntry {
 // -- HELPERS --
 
 func isDownloading(dirPath string) bool {
-	dirName := filepath.Base(dirPath)
-	spaceIdx := strings.IndexByte(dirName, ' ')
-	if spaceIdx <= 0 {
-		return false
-	}
-	galleryID := dirName[:spaceIdx]
+	galleryID := filepath.Base(dirPath)
 	markerPath := filepath.Join(filepath.Dir(dirPath), ".downloading-"+galleryID)
 	_, err := os.Stat(markerPath)
 	return err == nil
