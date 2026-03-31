@@ -211,6 +211,7 @@ html, body {
 .row-strip img {
     display: block;
     flex-shrink: 0;
+    object-fit: cover;
     user-select: none;
     -webkit-user-select: none;
     -webkit-user-drag: none;

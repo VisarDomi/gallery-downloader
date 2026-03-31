@@ -1,9 +1,8 @@
 <script lang="ts">
     import { onMount, onDestroy, getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
-    import { API, SPRITE_THUMB_WIDTH, SPRITE_THUMB_HEIGHT, MAX_THUMBS_PER_STRIP } from '$lib/config.js';
+    import { SPRITE_THUMB_WIDTH, SPRITE_THUMB_HEIGHT, thumbUrl } from '$lib/config.js';
     import type { GalleryListItem } from '$lib/types.js';
-    import { SpriteScope } from '$lib/state/reader.svelte.js';
     import InfoModal from './InfoModal.svelte';
 
     const emit = appState.log.emit;
@@ -22,72 +21,95 @@
 
     const id = $derived(gallery.gallery_id);
 
-    // Sprite resource ownership — getter avoids capturing reactive value (pitfall #3)
-    const scope = new SpriteScope(() => id, emit);
-
     const viewId = getContext<string>('viewId');
     const tier = $derived(appState.ui.getViewTier(viewId));
 
     const thumbCount = $derived(gallery.thumb_count || 0);
-    const stripCount = $derived(Math.ceil(thumbCount / MAX_THUMBS_PER_STRIP));
 
     const isFav = $derived(appState.favorites.favoriteIds.has(id));
     const progressIndex = $derived(appState.reader.getProgressIndex(id));
     const savedQuery = $derived(appState.favorites.favoriteQueries[id]);
 
-    async function fetchSprite(img: HTMLImageElement, stripIdx: number, signal: AbortSignal) {
-        let delay = 1000;
-        while (!signal.aborted) {
-            try {
-                const res = await fetch(API.SPRITE(id, stripIdx), { signal });
-                if (res.status === 202) {
-                    // Still generating — wait and retry, but respect abort
-                    await new Promise<void>((resolve, reject) => {
-                        const timer = setTimeout(resolve, delay);
-                        signal.addEventListener('abort', () => { clearTimeout(timer); reject(); }, { once: true });
-                    });
-                    delay = Math.min(delay * 1.5, 5000);
-                    continue;
-                }
-                if (!res.ok) return;
-                const blob = await res.blob();
-                const url = URL.createObjectURL(blob);
-                const thumbsInStrip = Math.min(MAX_THUMBS_PER_STRIP, thumbCount - stripIdx * MAX_THUMBS_PER_STRIP);
-                const width = thumbsInStrip * SPRITE_THUMB_WIDTH;
-                const decodedBytes = width * SPRITE_THUMB_HEIGHT * 4;
-                scope.addBlobUrl(stripIdx, url, decodedBytes);
-                if (scope.isDropped) return;
-                const t0 = performance.now();
-                img.src = url;
-                img.decode().then(() => {
-                    emit('sprite-load', {
-                        galleryId: id,
-                        stripIdx,
-                        width,
-                        decodedBytes,
-                        decodeMs: Math.round(performance.now() - t0),
-                    });
-                }).catch(() => {});
-                return;
-            } catch {
-                return; // aborted or network error
-            }
-        }
+    // Track which thumbnails have been loaded (src set)
+    let loadedThumbs = new Set<number>();
+    let stripObserver: IntersectionObserver | null = null;
+
+    function loadThumb(img: HTMLImageElement, thumbIdx: number) {
+        if (loadedThumbs.has(thumbIdx) || img.src) return;
+        loadedThumbs.add(thumbIdx);
+        img.src = thumbUrl(id, thumbIdx);
     }
 
-    function fetchSprites() {
-        scope.abort();
-        scope.refresh();
-        emit('sprite-fetch', { galleryId: id, stripCount });
+    function unloadAllThumbs() {
+        if (loadedThumbs.size === 0) return;
         const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
-        if (!imgs) return;
-
-        for (let i = 0; i < stripCount; i++) {
-            const img = imgs[i];
-            if (!img || img.src) continue; // skip already-loaded strips
-            fetchSprite(img, i, scope.signal);
-        }
+        if (imgs) for (const img of imgs) img.removeAttribute('src');
+        loadedThumbs.clear();
     }
+
+    function setupStripObserver() {
+        stripObserver?.disconnect();
+        if (!stripContainer) return;
+
+        stripObserver = new IntersectionObserver(
+            (entries) => {
+                for (const entry of entries) {
+                    if (entry.isIntersecting) {
+                        const img = entry.target as HTMLImageElement;
+                        const idx = Number(img.dataset.idx);
+                        if (!isNaN(idx)) loadThumb(img, idx);
+                    }
+                }
+            },
+            { rootMargin: '0px 200% 0px 200%', root: stripContainer },
+        );
+
+        const imgs = stripContainer.querySelectorAll<HTMLImageElement>('img');
+        for (const img of imgs) stripObserver.observe(img);
+    }
+
+    function teardownStripObserver() {
+        stripObserver?.disconnect();
+        stripObserver = null;
+    }
+
+    $effect(() => {
+        const t = tier;
+        if (!rowElement || !stripContainer) return;
+
+        // Deep views: unload everything
+        if (t === 'deep') {
+            teardownStripObserver();
+            unloadAllThumbs();
+            return;
+        }
+
+        // Back view: keep current state for swipe preview
+        if (t === 'back') {
+            teardownStripObserver();
+            return;
+        }
+
+        // Active view: row-level observer gates strip observer setup
+        const viewLayer = rowElement.closest('.view-layer') as HTMLElement | null;
+        const rowObs = new IntersectionObserver(
+            ([entry]) => {
+                if (entry.isIntersecting) {
+                    setupStripObserver();
+                } else {
+                    teardownStripObserver();
+                    unloadAllThumbs();
+                }
+            },
+            { rootMargin: '100% 0px', root: viewLayer },
+        );
+        rowObs.observe(rowElement);
+
+        return () => {
+            rowObs.disconnect();
+            teardownStripObserver();
+        };
+    });
 
     // Restore strip scroll position on mount
     onMount(() => {
@@ -100,75 +122,6 @@
                 }
             });
         }
-    });
-
-    function suspendRow() {
-        if (!scope.isOwned) return;
-        scope.suspend();
-        const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
-        if (imgs) for (const img of imgs) img.removeAttribute('src');
-    }
-
-    function resumeRow() {
-        if (scope.isSuspended) {
-            emit('viewport-enter', { galleryId: id, action: 'resume' });
-            const entries = scope.resume();
-            const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
-            if (imgs) {
-                const t0 = performance.now();
-                const decodePromises: Promise<void>[] = [];
-                for (const [stripIdx, blob] of entries) {
-                    const img = imgs[stripIdx];
-                    if (img) {
-                        img.src = blob.url;
-                        decodePromises.push(img.decode().catch(() => {}));
-                    }
-                }
-                Promise.all(decodePromises).then(() => {
-                    emit('resume-decode-done', {
-                        galleryId: id,
-                        strips: entries.size,
-                        totalDecodeMs: Math.round(performance.now() - t0),
-                    });
-                });
-            }
-        } else if (scope.blobs.size < stripCount) {
-            emit('viewport-enter', { galleryId: id, action: 'fetch' });
-            fetchSprites();
-        }
-    }
-
-    $effect(() => {
-        const t = tier;
-        if (!rowElement || !stripContainer) return;
-
-        // Deep views: suspend everything
-        if (t === 'deep') {
-            suspendRow();
-            return;
-        }
-
-        // Back view: keep current state — visible rows stay owned for swipe preview,
-        // off-screen rows stay suspended. Observer disconnected (cleanup runs).
-        if (t === 'back') return;
-
-        // Active view: IntersectionObserver gates sprite decode by viewport proximity
-        const viewLayer = rowElement.closest('.view-layer') as HTMLElement | null;
-        const obs = new IntersectionObserver(
-            ([entry]) => {
-                if (scope.isDropped) return;
-                if (entry.isIntersecting) {
-                    resumeRow();
-                } else {
-                    suspendRow();
-                    emit('viewport-exit', { galleryId: id, strips: scope.blobs.size });
-                }
-            },
-            { rootMargin: '100% 0px', root: viewLayer },
-        );
-        obs.observe(rowElement);
-
-        return () => obs.disconnect();
     });
 
     function handleStripScroll() {
@@ -201,9 +154,8 @@
         appState.favorites.toggle(id, appState.searchState.fullQuery, appState.ui.viewMode === 'favorites');
     }
 
-    // Full cleanup when this row leaves the DOM
     onDestroy(() => {
-        scope.drop();
+        teardownStripObserver();
     });
 
     function handleSearchFilter(opts: { artist?: string; group?: string; language?: string }) {
@@ -216,12 +168,12 @@
 
 <div class="manga-row" id="gallery-{id}" bind:this={rowElement}>
     <div class="row-strip" role="button" tabindex="0" bind:this={stripContainer} onclick={handleStripClick} onkeydown={(e) => { if (e.key === 'Enter') appState.reader.openReader(gallery, 0); }} onscroll={handleStripScroll}>
-        {#each Array(stripCount) as _, i}
-            {@const thumbsInStrip = Math.min(MAX_THUMBS_PER_STRIP, thumbCount - i * MAX_THUMBS_PER_STRIP)}
+        {#each Array(thumbCount) as _, i}
             <img
                 alt=""
                 decoding="async"
-                width={thumbsInStrip * SPRITE_THUMB_WIDTH}
+                data-idx={i}
+                width={SPRITE_THUMB_WIDTH}
                 height={SPRITE_THUMB_HEIGHT}
             />
         {/each}
