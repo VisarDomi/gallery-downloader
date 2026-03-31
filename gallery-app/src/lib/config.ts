@@ -8,6 +8,14 @@ export const MAX_THUMBS_PER_STRIP = hitomi.sprite.maxPerStrip;
 export const RESUME_RECOVERY_MS = 5_000;
 export const DEEP_SLEEP_MS = 10 * 60 * 1000;
 
+/** Build a thumbnail URL for a gallery.
+ *  Pattern: /media/gallery-dl/hitomi/{id}/hitomi_{id}_thumb_{NNNN}.webp */
+export function thumbUrl(galleryId: number, thumbIndex: number): string {
+    const padded = String(thumbIndex + 1).padStart(4, '0');
+    const subdir = hitomi.gallerySubdir;
+    return `/media/${subdir}/${galleryId}/hitomi_${galleryId}_thumb_${padded}.webp`;
+}
+
 // API URL builders — same-origin, works in both dev proxy and prod
 export const API = {
     SEARCH: (query: string) => {
