@@ -7,7 +7,6 @@ import { createProxyMiddleware } from 'http-proxy-middleware';
 import { CONFIG } from './config.js';
 import { createHttpsServer } from './ssl.js';
 import { handleBatchRequest } from './batch.js';
-import { handleSpriteRequest } from './sprite.js';
 import { handleDeleteRequest } from './delete.js';
 
 const app = express();
@@ -50,8 +49,6 @@ app.post('/api/log', (req, res) => {
 });
 
 // API Routes
-app.get('/api/sprite/:galleryId/:stripIndex', handleSpriteRequest);
-
 app.get('/api/cert', (_req, res) => {
     const certPath = path.join(os.homedir(), '.local/share/mkcert/rootCA.pem');
     if (fs.existsSync(certPath)) {

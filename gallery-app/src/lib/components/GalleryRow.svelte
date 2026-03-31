@@ -1,7 +1,7 @@
 <script lang="ts">
     import { onMount, onDestroy, getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
-    import { SPRITE_THUMB_WIDTH, SPRITE_THUMB_HEIGHT, thumbUrl } from '$lib/config.js';
+    import { THUMB_WIDTH, THUMB_HEIGHT, thumbUrl } from '$lib/config.js';
     import type { GalleryListItem } from '$lib/types.js';
     import InfoModal from './InfoModal.svelte';
 
@@ -117,7 +117,7 @@
         if (rawTarget && stripContainer) {
             requestAnimationFrame(() => {
                 if (stripContainer) {
-                    const centered = rawTarget - (stripContainer.clientWidth / 2) + (SPRITE_THUMB_WIDTH / 2);
+                    const centered = rawTarget - (stripContainer.clientWidth / 2) + (THUMB_WIDTH / 2);
                     stripContainer.scrollLeft = Math.max(0, centered);
                 }
             });
@@ -134,7 +134,7 @@
         if (!stripContainer) return;
         const rect = stripContainer.getBoundingClientRect();
         const clickX = e.clientX - rect.left + stripContainer.scrollLeft;
-        const pageIndex = Math.floor(clickX / SPRITE_THUMB_WIDTH);
+        const pageIndex = Math.floor(clickX / THUMB_WIDTH);
         appState.reader.openReader(gallery, pageIndex);
     }
 
@@ -173,8 +173,8 @@
                 alt=""
                 decoding="async"
                 data-idx={i}
-                width={SPRITE_THUMB_WIDTH}
-                height={SPRITE_THUMB_HEIGHT}
+                width={THUMB_WIDTH}
+                height={THUMB_HEIGHT}
             />
         {/each}
     </div>

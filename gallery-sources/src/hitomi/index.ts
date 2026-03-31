@@ -67,9 +67,4 @@ export const hitomi: Source = {
         if (/^\d+$/.test(trimmed)) return `https://hitomi.la/galleries/${trimmed}.html`;
         return `https://hitomi.la/search.html?${encodeURIComponent(trimmed)}`;
     },
-    sprite: {
-        thumbWidth: 100,
-        thumbHeight: 300,
-        maxPerStrip: 163,
-    },
 };

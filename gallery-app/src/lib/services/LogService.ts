@@ -12,22 +12,11 @@ export type LogEvent =
     // Navigation
     | { event: 'view-push'; from: string; to: string }
     | { event: 'view-pop'; from: string; to: string }
-    // Performance — sprites
-    | { event: 'sprite-load'; galleryId: number; stripIdx: number; width: number; decodedBytes: number; decodeMs: number }
-    | { event: 'texture-budget'; totalBytes: number; stripCount: number; threshold: string }
-    | { event: 'sprite-fetch'; galleryId: number; stripCount: number }
     // Performance — views
     | { event: 'view-transition'; from: string; to: string; frameMs: number }
-    // Performance — blobs
-    | { event: 'blob-lifecycle'; galleryId: number; revoked: number; totalActive: number }
-    // Sprite ownership
-    | { event: 'sprite-suspend'; galleryId: number; strips: number; freedBytes: number }
-    | { event: 'sprite-resume'; galleryId: number; strips: number; restoredBytes: number }
-    // Viewport observation
+    // Performance — thumbnails
     | { event: 'viewport-enter'; galleryId: number; action: 'resume' | 'fetch' }
     | { event: 'viewport-exit'; galleryId: number; strips: number }
-    // Decode storm — measures total time all resumed sprites take to decode
-    | { event: 'resume-decode-done'; galleryId: number; strips: number; totalDecodeMs: number }
     // Search & favorites
     | { event: 'filter-load-failed'; error: string }
     | { event: 'search-failed'; error: string }

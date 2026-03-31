@@ -50,9 +50,4 @@ export interface Source {
         parseIdFromUrl: (url: string) => string | null;
     };
     toSourceUrl: (input: string) => string;
-    sprite: {
-        thumbWidth: number;
-        thumbHeight: number;
-        maxPerStrip: number;
-    };
 }

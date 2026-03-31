@@ -1,5 +1,4 @@
-import { SPRITE_THUMB_WIDTH } from '../config.js';
-import type { LogEmit } from '../services/LogService.js';
+import { THUMB_WIDTH } from '../config.js';
 import type { Gallery, GalleryListItem, PagePosition } from '../types.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
@@ -124,169 +123,6 @@ export class ReaderSession {
     }
 }
 
-// --- Texture budget tracking ---
-
-const BUDGET_THRESHOLDS = [100, 200, 300, 500, 750, 1000];
-let budgetTotalBytes = 0;
-let budgetStripCount = 0;
-const budgetCrossed = new Set<number>();
-let globalBlobCount = 0;
-
-function budgetAdd(decodedBytes: number, emit: LogEmit) {
-    budgetTotalBytes += decodedBytes;
-    budgetStripCount++;
-    const mb = budgetTotalBytes / (1024 * 1024);
-    for (const t of BUDGET_THRESHOLDS) {
-        if (mb >= t && !budgetCrossed.has(t)) {
-            budgetCrossed.add(t);
-            emit('texture-budget', {
-                totalBytes: budgetTotalBytes,
-                stripCount: budgetStripCount,
-                threshold: `${t}MB`,
-            });
-        }
-    }
-}
-
-function budgetRemove(decodedBytes: number) {
-    budgetTotalBytes = Math.max(0, budgetTotalBytes - decodedBytes);
-    budgetStripCount = Math.max(0, budgetStripCount - 1);
-    const mb = budgetTotalBytes / (1024 * 1024);
-    for (const t of BUDGET_THRESHOLDS) {
-        if (mb < t) budgetCrossed.delete(t);
-    }
-}
-
-// --- SpriteScope ---
-
-type SpriteState = 'empty' | 'owned' | 'suspended' | 'dropped';
-
-interface SpriteBlob {
-    url: string;
-    decodedBytes: number;
-}
-
-/** Owns sprite resources for one GalleryRow. Rust-inspired ownership model:
- *  - owned: GPU textures decoded + displayed (active/back view)
- *  - suspended: blob URLs kept in JS heap, GPU textures freed (deep view)
- *  - dropped: everything revoked (component unmount) */
-export class SpriteScope {
-    private getGalleryId: () => number;
-    private emit: LogEmit;
-    abortController: AbortController;
-    readonly blobs = new Map<number, SpriteBlob>();
-    private _state: SpriteState = 'empty';
-
-    constructor(getGalleryId: () => number, emit: LogEmit) {
-        this.getGalleryId = getGalleryId;
-        this.emit = emit;
-        this.abortController = new AbortController();
-    }
-
-    get signal(): AbortSignal {
-        return this.abortController.signal;
-    }
-
-    get isDropped(): boolean {
-        return this._state === 'dropped';
-    }
-
-    get isSuspended(): boolean {
-        return this._state === 'suspended';
-    }
-
-    get isOwned(): boolean {
-        return this._state === 'owned';
-    }
-
-    addBlobUrl(stripIdx: number, url: string, decodedBytes: number) {
-        if (this._state === 'dropped' || this._state === 'suspended') {
-            URL.revokeObjectURL(url);
-            return;
-        }
-        this.blobs.set(stripIdx, { url, decodedBytes });
-        this._state = 'owned';
-        globalBlobCount++;
-        budgetAdd(decodedBytes, this.emit);
-    }
-
-    /** Abort in-flight fetches without revoking existing blobs. */
-    abort() {
-        this.abortController.abort();
-    }
-
-    /** New AbortController, keep existing blobs — for resuming sprite fetches. */
-    refresh() {
-        this.abortController.abort();
-        this.abortController = new AbortController();
-    }
-
-    /** Suspend: cancel in-flight fetches, free GPU textures, keep blob URLs in JS heap. */
-    suspend() {
-        if (this._state !== 'owned' && this._state !== 'empty') return;
-        this.abortController.abort();
-        this.abortController = new AbortController();
-        let freedBytes = 0;
-        for (const blob of this.blobs.values()) {
-            budgetRemove(blob.decodedBytes);
-            freedBytes += blob.decodedBytes;
-        }
-        this._state = 'suspended';
-        if (freedBytes > 0) {
-            this.emit('sprite-suspend', {
-                galleryId: this.getGalleryId(),
-                strips: this.blobs.size,
-                freedBytes,
-            });
-        }
-    }
-
-    /** Resume: restore GPU textures from cached blob URLs. Returns entries for DOM re-set. */
-    resume(): Map<number, SpriteBlob> {
-        if (this._state !== 'suspended') return this.blobs;
-        let restoredBytes = 0;
-        for (const blob of this.blobs.values()) {
-            budgetAdd(blob.decodedBytes, this.emit);
-            restoredBytes += blob.decodedBytes;
-        }
-        this._state = 'owned';
-        this.abortController = new AbortController();
-        if (restoredBytes > 0) {
-            this.emit('sprite-resume', {
-                galleryId: this.getGalleryId(),
-                strips: this.blobs.size,
-                restoredBytes,
-            });
-        }
-        return this.blobs;
-    }
-
-    /** Full cleanup — abort, revoke all blobs, free everything. */
-    drop() {
-        if (this._state === 'dropped') return;
-        this.abortController.abort();
-        const revoked = this.blobs.size;
-        if (this._state === 'owned') {
-            for (const blob of this.blobs.values()) {
-                budgetRemove(blob.decodedBytes);
-            }
-        }
-        for (const blob of this.blobs.values()) {
-            URL.revokeObjectURL(blob.url);
-        }
-        globalBlobCount -= revoked;
-        this._state = 'dropped';
-        if (revoked > 0) {
-            this.emit('blob-lifecycle', {
-                galleryId: this.getGalleryId(),
-                revoked,
-                totalActive: globalBlobCount,
-            });
-        }
-        this.blobs.clear();
-    }
-}
-
 export class ReaderState {
     session = $state<ReaderSession | null>(null);
     currentPosition = $state<PagePosition>({ pageIndex: 0, fraction: 0 });
@@ -383,7 +219,7 @@ export class ReaderState {
 
     /** Silently scroll the thumbnail strip in the hidden back view to match current page. */
     syncStripScroll(galleryId: number, pageIndex: number) {
-        const rawTarget = pageIndex * SPRITE_THUMB_WIDTH;
+        const rawTarget = pageIndex * THUMB_WIDTH;
         this.ui.stripScrolls[galleryId] = rawTarget;
 
         const backView = this.ui.peekBack();
@@ -394,7 +230,7 @@ export class ReaderState {
         const row = container?.querySelector(`#gallery-${galleryId}`) as HTMLElement | null;
         const strip = row?.querySelector('.row-strip') as HTMLElement;
         if (strip) {
-            const centered = rawTarget - (strip.clientWidth / 2) + (SPRITE_THUMB_WIDTH / 2);
+            const centered = rawTarget - (strip.clientWidth / 2) + (THUMB_WIDTH / 2);
             strip.scrollLeft = Math.max(0, centered);
         }
     }
