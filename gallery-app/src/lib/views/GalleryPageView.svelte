@@ -1,5 +1,4 @@
 <script lang="ts">
-    import { setContext, untrack } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import type { GalleryListItem, ViewMode, PaginatedGallerySource } from '$lib/types.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
@@ -24,7 +23,6 @@
         allowReplay?: boolean;
     } = $props();
 
-    setContext('viewId', untrack(() => viewId));
 </script>
 
 <SearchBar />

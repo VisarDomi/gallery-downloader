@@ -1,5 +1,5 @@
 <script lang="ts">
-    import { untrack, getContext } from 'svelte';
+    import { getContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { API } from '$lib/config.js';
     import type { ReaderSession } from '$lib/state/reader.svelte.js';
@@ -10,11 +10,11 @@
 
     let {
         session,
-        startPosition,
+        getStartPosition,
         onClose,
     }: {
         session: ReaderSession | null;
-        startPosition: PagePosition;
+        getStartPosition: () => PagePosition;
         onClose: () => void;
     } = $props();
 
@@ -158,7 +158,7 @@
         const s = session;
         if (!s) return;
 
-        setupSession(s, untrack(() => startPosition));
+        setupSession(s, getStartPosition());
 
         return () => {
             if (!s.isDropped) s.drop();

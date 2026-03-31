@@ -1,7 +1,10 @@
 <script lang="ts">
+    import { setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import GalleryPageView from './GalleryPageView.svelte';
+
+    setContext('viewId', 'favorites');
 
     const galleries = $derived(appState.favorites.paginatedGalleries);
     const total = $derived(appState.favorites.favoriteGalleries.length);
