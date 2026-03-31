@@ -3,6 +3,7 @@ export type LogEvent =
     | { event: 'boot-start' }
     | { event: 'boot-ready'; ms: number; view: string }
     | { event: 'init-crash'; message: string; stack: string; ms: number }
+    | { event: 'crash-detected'; lastAction: string; lastView: string; lastPage: number }
     | { event: 'restore-none' }
     | { event: 'restore-start'; view: string; galleryId: number | null; hasQuery: boolean }
     | { event: 'restore-ok'; view: string; galleryId?: number }
@@ -12,11 +13,9 @@ export type LogEvent =
     // Navigation
     | { event: 'view-push'; from: string; to: string }
     | { event: 'view-pop'; from: string; to: string }
-    // Performance — views
     | { event: 'view-transition'; from: string; to: string; frameMs: number }
-    // Performance — thumbnails
-    | { event: 'viewport-enter'; galleryId: number; action: 'resume' | 'fetch' }
-    | { event: 'viewport-exit'; galleryId: number; strips: number }
+    // Pagination
+    | { event: 'page-change'; view: string; from: number; to: number; totalItems: number }
     // Search & favorites
     | { event: 'filter-load-failed'; error: string }
     | { event: 'search-failed'; error: string }

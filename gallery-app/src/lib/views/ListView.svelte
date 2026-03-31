@@ -33,6 +33,11 @@
     <Pagination
         currentPage={appState.searchState.currentPage}
         totalPages={appState.searchState.totalPages}
-        onPage={(p) => { appState.searchState.currentPage = p; scrollToTop(); }}
+        onPage={(p) => {
+            appState.log.emit('page-change', { view: 'list', from: appState.searchState.currentPage, to: p, totalItems: total });
+            appState.updateSentinel(`page-change:list:${p}`);
+            appState.searchState.currentPage = p;
+            scrollToTop();
+        }}
     />
 </div>

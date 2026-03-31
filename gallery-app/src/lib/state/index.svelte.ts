@@ -2,6 +2,7 @@ import { PAGE_SIZE, RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../config.js';
 import * as api from '../services/api.js';
 import { LogService } from '../services/LogService.js';
 import { setDbLogger } from '../services/db.js';
+import { getJson, setJson, remove } from '../services/storage.js';
 import { ToastState } from './toast.svelte.js';
 import { UIState } from './ui.svelte.js';
 import { SearchState } from './search.svelte.js';
@@ -25,6 +26,7 @@ class AppState {
 
     private lastTick = Date.now();
     private tickInterval: ReturnType<typeof setInterval> | undefined;
+    private cleanups: (() => void)[] = [];
 
     constructor() {
         const emit = this.log.emit;
@@ -48,6 +50,25 @@ class AppState {
         // LogService owns global error handlers — start first so crashes during init are captured
         this.log.start();
         this.log.emit('boot-start');
+
+        // Crash sentinel: detect if previous session died without clean shutdown
+        const sentinel = getJson<{ action: string; view: string; page: number } | null>('sentinel', null);
+        if (sentinel) {
+            this.log.emit('crash-detected', {
+                lastAction: sentinel.action,
+                lastView: sentinel.view,
+                lastPage: sentinel.page,
+            });
+        }
+        setJson('sentinel', { action: 'boot', view: 'list', page: 0 });
+
+        // Clean shutdown clears the sentinel
+        const onBeforeUnload = () => remove('sentinel');
+        window.addEventListener('beforeunload', onBeforeUnload);
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'hidden') remove('sentinel');
+        });
+        this.cleanups.push(() => window.removeEventListener('beforeunload', onBeforeUnload));
 
         // Wire db module's logger to our LogService
         setDbLogger((op, error) => this.log.emit('db-error', { op, error }));
@@ -78,6 +99,11 @@ class AppState {
                 ms: Date.now() - t0,
             });
         }
+    }
+
+    /** Update crash sentinel before expensive operations. */
+    updateSentinel(action: string) {
+        setJson('sentinel', { action, view: this.ui.viewMode, page: this.searchState.currentPage });
     }
 
     // -- Cross-domain orchestration --
@@ -263,6 +289,8 @@ class AppState {
         this.log.destroy();
         clearInterval(this.tickInterval);
         document.removeEventListener('visibilitychange', this.onVisibilityChange);
+        for (const fn of this.cleanups) fn();
+        this.cleanups = [];
         this.reader.destroy();
         this.toast.destroy();
     }

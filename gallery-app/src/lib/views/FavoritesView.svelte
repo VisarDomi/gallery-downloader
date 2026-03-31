@@ -35,7 +35,12 @@
     <Pagination
         currentPage={appState.favorites.currentPage}
         totalPages={appState.favorites.totalPages}
-        onPage={(p) => { appState.favorites.currentPage = p; scrollToTop(); }}
+        onPage={(p) => {
+            appState.log.emit('page-change', { view: 'favorites', from: appState.favorites.currentPage, to: p, totalItems: total });
+            appState.updateSentinel(`page-change:favorites:${p}`);
+            appState.favorites.currentPage = p;
+            scrollToTop();
+        }}
     />
 </div>
 </div>
