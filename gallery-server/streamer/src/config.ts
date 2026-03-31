@@ -10,5 +10,5 @@ export const CONFIG = {
     MEDIA_ROOT: '/home/visar/Pictures',
     SSL_DIR: path.join(os.homedir(), '.local/share/mkcert/pwa'),
     BATCH_LIMIT: '200mb',
-    FRONTEND_BUILD_PATH: path.resolve(__dirname, '..', '..', '..', 'gallery-reader', 'build'),
+    FRONTEND_BUILD_PATH: path.resolve(__dirname, '..', '..', '..', 'gallery-app', 'build'),
 };

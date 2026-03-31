@@ -4,13 +4,13 @@
     "private": true,
     "workspaces": [
         "gallery-sources",
-        "gallery-reader",
+        "gallery-app",
         "gallery-server/indexer",
         "gallery-server/streamer",
         "gallery-server/downloader"
     ],
     "scripts": {
-        "build": "npm run build -w gallery-sources && npm run build -w gallery-reader && npm run build -w indexer && npm run build -w streamer && npm run build -w downloader",
+        "build": "npm run build -w gallery-sources && npm run build -w gallery-app && npm run build -w indexer && npm run build -w streamer && npm run build -w downloader",
         "start": "npm run build && systemctl --user start hitomi-indexer hitomi-streamer hitomi-downloader",
         "restart": "npm run build && systemctl --user restart hitomi-indexer hitomi-streamer hitomi-downloader",
         "stop": "systemctl --user stop hitomi-indexer hitomi-streamer hitomi-downloader",

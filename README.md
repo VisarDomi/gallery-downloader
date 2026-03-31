@@ -5,7 +5,7 @@ Monorepo for a self-hosted gallery viewer PWA with search, sprite thumbnails, an
 ## Structure
 
 - **gallery-sources** — Provider-specific logic (currently: Hitomi)
-- **gallery-reader** — SvelteKit frontend PWA
+- **gallery-app** — SvelteKit frontend PWA
 - **gallery-server** — Backend services (indexer, streamer, downloader)
 - **gallery-index** — JSON registry of available sources
 
