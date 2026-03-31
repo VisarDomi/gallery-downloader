@@ -1,44 +1,17 @@
 <script lang="ts">
-    import { setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
-    import SearchBar from '$lib/components/SearchBar.svelte';
-    import GalleryList from '$lib/components/GalleryList.svelte';
-    import Pagination from '$lib/components/Pagination.svelte';
-
-    setContext('viewId', 'list');
+    import GalleryPageView from './GalleryPageView.svelte';
 
     const galleries = $derived(appState.searchState.paginatedGalleries);
     const total = $derived(appState.searchState.allGalleries.length);
     const query = $derived(appState.searchState.currentQuery);
-
-    function scrollToTop() {
-        document.getElementById('view-list')?.scrollTo(0, 0);
-    }
 </script>
 
-<SearchBar />
-
-<div class="content-wrapper">
-    <div class="results-info">
-        <span class="count">{total}</span> results
-        {#if query}
-            <span class="query">{query}</span>
-        {/if}
-    </div>
-
-    <div class="gallery-list-container">
-        <GalleryList {galleries} />
-    </div>
-
-    <Pagination
-        currentPage={appState.searchState.currentPage}
-        totalPages={appState.searchState.totalPages}
-        onPage={(p) => {
-            appState.log.emit('page-change', { view: 'list', from: appState.searchState.currentPage, to: p, totalItems: total });
-            appState.updateSentinel(`page-change:list:${p}`);
-            appState.searchState.currentPage = p;
-            appState.persistSession();
-            scrollToTop();
-        }}
-    />
-</div>
+<GalleryPageView
+    viewId="list"
+    {galleries}
+    {total}
+    label="results"
+    source={appState.searchState}
+    {query}
+/>

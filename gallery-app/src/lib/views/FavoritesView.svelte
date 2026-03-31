@@ -1,19 +1,10 @@
 <script lang="ts">
-    import { setContext } from 'svelte';
     import { appState } from '$lib/state/index.svelte.js';
     import { swipeBack } from '$lib/actions/swipeBack.js';
-    import SearchBar from '$lib/components/SearchBar.svelte';
-    import GalleryList from '$lib/components/GalleryList.svelte';
-    import Pagination from '$lib/components/Pagination.svelte';
-
-    setContext('viewId', 'favorites');
+    import GalleryPageView from './GalleryPageView.svelte';
 
     const galleries = $derived(appState.favorites.paginatedGalleries);
     const total = $derived(appState.favorites.favoriteGalleries.length);
-
-    function scrollToTop() {
-        document.getElementById('view-favorites')?.scrollTo(0, 0);
-    }
 
     function handleSwipeBack() {
         appState.ui.popView();
@@ -21,27 +12,12 @@
 </script>
 
 <div use:swipeBack={{ onClose: handleSwipeBack, peekBack: () => appState.ui.peekBack() }}>
-<SearchBar />
-
-<div class="content-wrapper">
-    <div class="results-info">
-        <span class="count">{total}</span> favorites
-    </div>
-
-    <div class="gallery-list-container">
-        <GalleryList {galleries} allowReplay={true} />
-    </div>
-
-    <Pagination
-        currentPage={appState.favorites.currentPage}
-        totalPages={appState.favorites.totalPages}
-        onPage={(p) => {
-            appState.log.emit('page-change', { view: 'favorites', from: appState.favorites.currentPage, to: p, totalItems: total });
-            appState.updateSentinel(`page-change:favorites:${p}`);
-            appState.favorites.currentPage = p;
-            appState.persistSession();
-            scrollToTop();
-        }}
+    <GalleryPageView
+        viewId="favorites"
+        {galleries}
+        {total}
+        label="favorites"
+        source={appState.favorites}
+        allowReplay={true}
     />
-</div>
 </div>

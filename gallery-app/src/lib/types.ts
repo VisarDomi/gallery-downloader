@@ -24,3 +24,10 @@ export interface PagePosition {
 }
 
 export type ViewMode = 'list' | 'reader' | 'saved' | 'favorites';
+
+/** Shared interface for paginated gallery sources (SearchState, FavoritesState). */
+export interface PaginatedGallerySource {
+    readonly paginatedGalleries: GalleryListItem[];
+    readonly totalPages: number;
+    currentPage: number;
+}

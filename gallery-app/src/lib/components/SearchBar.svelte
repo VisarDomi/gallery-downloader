@@ -3,16 +3,17 @@
 
     let inputValue = $state(appState.searchState.fullQuery);
 
-    // Strip filter tokens from inputValue to get just the free text
     function freeText() {
         return inputValue.replace(/\b(language|artist|group):\S+/g, '').trim();
     }
 
     async function handleSubmit(e: Event) {
         e.preventDefault();
-        appState.ui.pushView('list');
-        await appState.searchState.restoreFromQuery(inputValue);
-        appState.persistSession();
+        await appState.searchAndPersist(() => appState.searchState.restoreFromQuery(inputValue));
+    }
+
+    function handleFilterChange() {
+        appState.searchAndPersist(() => appState.searchState.search(freeText()));
     }
 
     function handleSave() {
@@ -36,7 +37,6 @@
         }
     }
 
-    // Sync input to full query (filters + free text) when search completes
     $effect(() => {
         if (!appState.searchState.isLoading) {
             inputValue = appState.searchState.fullQuery;
@@ -61,7 +61,7 @@
     <div class="filter-row">
         <select
             bind:value={appState.searchState.selectedLanguage}
-            onchange={async () => { appState.ui.pushView('list'); await appState.searchState.search(freeText()); appState.persistSession(); }}
+            onchange={handleFilterChange}
         >
             <option value="">Any Language</option>
             {#each appState.searchState.availableLanguages as [lang, count]}
@@ -70,7 +70,7 @@
         </select>
         <select
             bind:value={appState.searchState.selectedArtist}
-            onchange={async () => { appState.searchState.selectedGroup = ''; appState.ui.pushView('list'); await appState.searchState.search(freeText()); appState.persistSession(); }}
+            onchange={() => { appState.searchState.selectedGroup = ''; handleFilterChange(); }}
         >
             <option value="">Any Artist</option>
             {#each appState.searchState.availableArtists as [artist, count]}
@@ -79,7 +79,7 @@
         </select>
         <select
             bind:value={appState.searchState.selectedGroup}
-            onchange={async () => { appState.searchState.selectedArtist = ''; appState.ui.pushView('list'); await appState.searchState.search(freeText()); appState.persistSession(); }}
+            onchange={() => { appState.searchState.selectedArtist = ''; handleFilterChange(); }}
         >
             <option value="">Any Group</option>
             {#each appState.searchState.availableGroups as [group, count]}

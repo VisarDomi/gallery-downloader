@@ -1,4 +1,5 @@
 import { PAGE_SIZE, RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../config.js';
+import type { PaginatedGallerySource, ViewMode } from '../types.js';
 import * as api from '../services/api.js';
 import { LogService } from '../services/LogService.js';
 import { setDbLogger } from '../services/db.js';
@@ -11,7 +12,7 @@ import { FavoritesState } from './favorites.svelte.js';
 import { SavedState } from './saved.svelte.js';
 import { DeleteState } from './delete.svelte.js';
 import { ArtistsState } from './artists.svelte.js';
-import { saveSession, loadSession, clearSession } from './session.js';
+import { saveSession, loadSession, clearSession, type SessionSnapshot } from './session.js';
 
 class AppState {
     readonly log = new LogService();
@@ -106,6 +107,22 @@ class AppState {
     /** Update crash sentinel before expensive operations. */
     updateSentinel(action: string) {
         setJson('sentinel', { action, view: this.ui.viewMode, page: this.searchState.currentPage });
+    }
+
+    /** Single owner of page-change orchestration: log, sentinel, persist, scroll. */
+    changePage(view: ViewMode, source: PaginatedGallerySource, page: number) {
+        this.log.emit('page-change', { view, from: source.currentPage, to: page, totalItems: source.totalPages * PAGE_SIZE });
+        this.updateSentinel(`page-change:${view}:${page}`);
+        source.currentPage = page;
+        this.persistSession();
+        document.getElementById(`view-${view}`)?.scrollTo(0, 0);
+    }
+
+    /** Single owner of search→persist flow. */
+    async searchAndPersist(searchFn: () => Promise<void>) {
+        this.ui.pushView('list');
+        await searchFn();
+        this.persistSession();
     }
 
     // -- Cross-domain orchestration --
@@ -236,7 +253,7 @@ class AppState {
         this.log.emit('restore-ok', { view: 'list' });
     }
 
-    private restoreScrollPositions(snap: import('./session.js').SessionSnapshot) {
+    private restoreScrollPositions(snap: SessionSnapshot) {
         requestAnimationFrame(() => {
             if (snap.listScroll) {
                 const listView = document.getElementById('view-list');
@@ -254,7 +271,7 @@ class AppState {
      * During normal usage the DOM owns scroll position (views stay mounted).
      * On restore the DOM is fresh — derive position from the active gallery.
      */
-    private async prepareBackViews(snap: import('./session.js').SessionSnapshot) {
+    private async prepareBackViews(snap: SessionSnapshot) {
         if (!snap.activeGalleryId) return;
 
         const backView = snap.viewStack[snap.viewStack.length - 1];

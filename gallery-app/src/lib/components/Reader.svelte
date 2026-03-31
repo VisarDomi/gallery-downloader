@@ -3,6 +3,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { API } from '$lib/config.js';
     import type { ReaderSession } from '$lib/state/reader.svelte.js';
+    import type { PagePosition } from '$lib/types.js';
 
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
     const scheduleIdle = globalThis.requestIdleCallback ?? ((cb: () => void) => setTimeout(cb, 0));
@@ -13,7 +14,7 @@
         onClose,
     }: {
         session: ReaderSession | null;
-        startPosition: import('$lib/types.js').PagePosition;
+        startPosition: PagePosition;
         onClose: () => void;
     } = $props();
 
@@ -68,7 +69,7 @@
         appState.reader.saveProgress(s.gallery.gallery_id, { pageIndex: idx, fraction });
     }
 
-    function setupSession(s: ReaderSession, initialPosition: import('$lib/types.js').PagePosition) {
+    function setupSession(s: ReaderSession, initialPosition: PagePosition) {
         suppressSave = true;
         const g = s.gallery;
         pageElements.length = g.count;
