@@ -1,6 +1,6 @@
 import { hitomi } from 'gallery-sources';
 
-export const PAGE_SIZE = 25; // putting this to 100 just breaks the pwa on ios... we need to think of a better design for this app
+export const PAGE_SIZE = 100;
 export const THUMB_WIDTH = 100;
 export const THUMB_HEIGHT = 300;
 
