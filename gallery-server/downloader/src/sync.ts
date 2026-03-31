@@ -90,14 +90,17 @@ export async function runSync(artistsPath: string, queriesPath: string): Promise
 
         log(`Artists resolved: ${wantedIds.size} unique IDs from ${manifest.artists.length} entries`);
 
-        // Phase 1b: Subtract anthologies from artist IDs
-        const anthologyResult = await resolveTag('tag:anthology', 'japanese');
-        if (anthologyResult.errors.length > 0) {
-            currentSync.errors.push(...anthologyResult.errors);
-        } else {
-            const before = wantedIds.size;
-            for (const id of anthologyResult.ids) wantedIds.delete(id);
-            log(`Anthology filter: ${before - wantedIds.size} removed (${wantedIds.size} remaining)`);
+        // Phase 1b: Subtract excluded tags from artist IDs
+        const EXCLUDED_TAGS = ['tag:anthology', 'tag:animated'];
+        for (const tag of EXCLUDED_TAGS) {
+            const result = await resolveTag(tag, 'japanese');
+            if (result.errors.length > 0) {
+                currentSync.errors.push(...result.errors);
+            } else {
+                const before = wantedIds.size;
+                for (const id of result.ids) wantedIds.delete(id);
+                log(`${tag} filter: ${before - wantedIds.size} removed (${wantedIds.size} remaining)`);
+            }
         }
 
         // Phase 2: Resolve query entries
