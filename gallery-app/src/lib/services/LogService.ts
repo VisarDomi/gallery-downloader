@@ -23,6 +23,11 @@ export type LogEvent =
     // Sprite ownership
     | { event: 'sprite-suspend'; galleryId: number; strips: number; freedBytes: number }
     | { event: 'sprite-resume'; galleryId: number; strips: number; restoredBytes: number }
+    // Viewport observation
+    | { event: 'viewport-enter'; galleryId: number; action: 'resume' | 'fetch' }
+    | { event: 'viewport-exit'; galleryId: number; strips: number }
+    // Decode storm — measures total time all resumed sprites take to decode
+    | { event: 'resume-decode-done'; galleryId: number; strips: number; totalDecodeMs: number }
     // Search & favorites
     | { event: 'filter-load-failed'; error: string }
     | { event: 'search-failed'; error: string }

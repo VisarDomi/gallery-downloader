@@ -16,6 +16,7 @@
         allowReplay?: boolean;
     } = $props();
 
+    let rowElement: HTMLDivElement | undefined = $state();
     let stripContainer: HTMLDivElement | undefined = $state();
     let showInfoModal = $state(false);
 
@@ -101,31 +102,69 @@
         }
     });
 
+    function suspendRow() {
+        if (!scope.isOwned) return;
+        scope.suspend();
+        const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
+        if (imgs) for (const img of imgs) img.removeAttribute('src');
+    }
+
+    function resumeRow() {
+        if (scope.isSuspended) {
+            emit('viewport-enter', { galleryId: id, action: 'resume' });
+            const entries = scope.resume();
+            const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
+            if (imgs) {
+                const t0 = performance.now();
+                const decodePromises: Promise<void>[] = [];
+                for (const [stripIdx, blob] of entries) {
+                    const img = imgs[stripIdx];
+                    if (img) {
+                        img.src = blob.url;
+                        decodePromises.push(img.decode().catch(() => {}));
+                    }
+                }
+                Promise.all(decodePromises).then(() => {
+                    emit('resume-decode-done', {
+                        galleryId: id,
+                        strips: entries.size,
+                        totalDecodeMs: Math.round(performance.now() - t0),
+                    });
+                });
+            }
+        } else if (scope.blobs.size < stripCount) {
+            emit('viewport-enter', { galleryId: id, action: 'fetch' });
+            fetchSprites();
+        }
+    }
+
     $effect(() => {
         const t = tier;
-        if (!stripContainer) return;
+        if (!rowElement || !stripContainer) return;
 
-        if (t === 'deep') {
-            if (scope.isOwned) {
-                scope.suspend();
-                const imgs = stripContainer.querySelectorAll<HTMLImageElement>('img');
-                for (const img of imgs) img.removeAttribute('src');
-            }
+        // Non-active views: suspend everything, no viewport observation
+        if (t !== 'active') {
+            suspendRow();
             return;
         }
 
-        // Active or back — resume from suspension or do initial load
-        if (scope.isSuspended) {
-            const entries = scope.resume();
-            const imgs = stripContainer.querySelectorAll<HTMLImageElement>('img');
-            for (const [stripIdx, blob] of entries) {
-                const img = imgs[stripIdx];
-                if (img) img.src = blob.url;
-            }
-        }
-        if (!scope.isDropped && scope.blobs.size < stripCount) {
-            fetchSprites();
-        }
+        // Active view: IntersectionObserver gates sprite decode by viewport proximity
+        const viewLayer = rowElement.closest('.view-layer') as HTMLElement | null;
+        const obs = new IntersectionObserver(
+            ([entry]) => {
+                if (scope.isDropped) return;
+                if (entry.isIntersecting) {
+                    resumeRow();
+                } else {
+                    suspendRow();
+                    emit('viewport-exit', { galleryId: id, strips: scope.blobs.size });
+                }
+            },
+            { rootMargin: '100% 0px', root: viewLayer },
+        );
+        obs.observe(rowElement);
+
+        return () => obs.disconnect();
     });
 
     function handleStripScroll() {
@@ -171,7 +210,7 @@
 
 </script>
 
-<div class="manga-row" id="gallery-{id}">
+<div class="manga-row" id="gallery-{id}" bind:this={rowElement}>
     <div class="row-strip" role="button" tabindex="0" bind:this={stripContainer} onclick={handleStripClick} onkeydown={(e) => { if (e.key === 'Enter') appState.reader.openReader(gallery, 0); }} onscroll={handleStripScroll}>
         {#each Array(stripCount) as _, i}
             {@const thumbsInStrip = Math.min(MAX_THUMBS_PER_STRIP, thumbCount - i * MAX_THUMBS_PER_STRIP)}
