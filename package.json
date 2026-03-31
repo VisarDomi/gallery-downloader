@@ -11,9 +11,9 @@
     ],
     "scripts": {
         "build": "npm run build -w gallery-sources && npm run build -w gallery-app && npm run build -w indexer && npm run build -w streamer && npm run build -w downloader",
-        "start": "npm run build && systemctl --user start hitomi-indexer hitomi-streamer hitomi-downloader",
-        "restart": "npm run build && systemctl --user restart hitomi-indexer hitomi-streamer hitomi-downloader",
-        "stop": "systemctl --user stop hitomi-indexer hitomi-streamer hitomi-downloader",
-        "logs": "journalctl --user -u hitomi-indexer -u hitomi-streamer -u hitomi-downloader -f"
+        "start": "npm run build && systemctl --user start gallery-indexer gallery-streamer gallery-downloader",
+        "restart": "npm run build && systemctl --user restart gallery-indexer gallery-streamer gallery-downloader",
+        "stop": "systemctl --user stop gallery-indexer gallery-streamer gallery-downloader",
+        "logs": "journalctl --user -u gallery-indexer -u gallery-streamer -u gallery-downloader -f"
     }
 }
