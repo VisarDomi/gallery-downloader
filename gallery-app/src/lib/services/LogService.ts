@@ -30,6 +30,10 @@ export type LogEvent =
     | { event: 'artists-remove-ok'; line: string }
     | { event: 'artists-remove-poll'; phase: string }
     | { event: 'artists-op-failed'; type: string; line: string; error: string }
+    // Reader loading
+    | { event: 'reader-setup'; galleryId: number; pageCount: number; startPage: number; hasRoot: boolean }
+    | { event: 'reader-idle-done'; galleryId: number; idleCallbacks: number; pagesScheduled: number }
+    | { event: 'reader-drop'; galleryId: number; total: number; loaded: number; failed: number; idle: number; observer: number; eager: number; idleCallbacks: number; idleComplete: boolean; elapsedMs: number }
     // Database
     | { event: 'db-error'; op: string; error: string }
     // Global errors

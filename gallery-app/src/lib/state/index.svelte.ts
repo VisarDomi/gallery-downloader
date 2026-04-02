@@ -36,7 +36,7 @@ class AppState {
         this.searchState = new SearchState(emit);
         this.favorites = new FavoritesState(emit);
         this.saved = new SavedState(emit);
-        this.reader = new ReaderState(this.ui);
+        this.reader = new ReaderState(this.ui, emit);
         this.delete_ = new DeleteState({
             favorites: this.favorites,
             reader: this.reader,

@@ -10,11 +10,9 @@
 
     let {
         session,
-        getStartPosition,
         onClose,
     }: {
         session: ReaderSession | null;
-        getStartPosition: () => PagePosition;
         onClose: () => void;
     } = $props();
 
@@ -33,9 +31,10 @@
         }
     }
 
-    function loadPage(s: ReaderSession, pageIndex: number) {
+    function loadPage(s: ReaderSession, pageIndex: number, source: 'idle' | 'observer' | 'eager') {
         if (s.hasPage(pageIndex) || s.isLoading(pageIndex)) return;
         s.markLoading(pageIndex);
+        s.recordLoadStart(source);
 
         const g = s.gallery;
         const url = API.MEDIA(`${g.path}/${g.fullFiles[pageIndex]}`);
@@ -44,11 +43,12 @@
             .then((blob) => {
                 const blobUrl = URL.createObjectURL(blob);
                 s.addBlobUrl(pageIndex, blobUrl);
+                s.recordLoadOk();
                 if (s.isDropped) return;
                 const img = pageElements[pageIndex]?.querySelector('img');
                 if (img) img.src = blobUrl;
             })
-            .catch(() => {})
+            .catch(() => { s.recordLoadFail(); })
             .finally(() => s.unmarkLoading(pageIndex));
     }
 
@@ -76,14 +76,17 @@
 
         const viewReader = getReaderRoot();
 
-        // Preload observer — triggers fetch when pages are within 1 viewport of visible area
+        // Signal load tracking start
+        s.beginLoading(initialPosition.pageIndex, !!viewReader);
+
+        // Preload observer — triggers fetch when pages are within 5 viewports of visible area
         const preObs = new IntersectionObserver(
             (entries) => {
                 if (s.isDropped) return;
                 for (const entry of entries) {
                     if (entry.isIntersecting) {
                         const idx = pageElements.indexOf(entry.target as HTMLElement);
-                        if (idx >= 0) loadPage(s, idx);
+                        if (idx >= 0) loadPage(s, idx, 'observer');
                     }
                 }
             },
@@ -96,7 +99,7 @@
         }
 
         // Eagerly load start page (don't wait for observer)
-        loadPage(s, initialPosition.pageIndex);
+        loadPage(s, initialPosition.pageIndex, 'eager');
 
         // Eagerly load ALL pages via idle callbacks so nothing is black on scroll.
         // Start from the pages nearest to the initial position, fanning outward.
@@ -109,13 +112,17 @@
         }
         let idx = 0;
         function scheduleNext() {
-            if (s.isDropped || idx >= order.length) return;
+            if (s.isDropped || idx >= order.length) {
+                if (!s.isDropped && idx >= order.length) s.markIdleDone(order.length);
+                return;
+            }
             scheduleIdle(() => {
                 if (s.isDropped) return;
+                s.recordIdleCallback();
                 // Load a batch of 3 per idle frame to saturate network without blocking UI
                 const end = Math.min(idx + 3, order.length);
                 for (; idx < end; idx++) {
-                    loadPage(s, order[idx]);
+                    loadPage(s, order[idx], 'idle');
                 }
                 scheduleNext();
             });
@@ -153,12 +160,14 @@
         s.addRaf(rafId);
     }
 
-    // Reactive: when session changes, set up observers and scroll to start position
+    // Reactive: when session changes, set up observers and scroll to start position.
+    // Only depends on `session` — startPosition is owned by the session (set once at creation).
+    // DO NOT read currentPosition or any other $state here — it would re-trigger setup.
     $effect(() => {
         const s = session;
         if (!s) return;
 
-        setupSession(s, getStartPosition());
+        setupSession(s, s.startPosition);
 
         return () => {
             if (!s.isDropped) s.drop();

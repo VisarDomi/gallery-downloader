@@ -11,5 +11,5 @@
 </script>
 
 <div use:swipeBack={{ onClose: handleClose, peekBack: () => appState.ui.peekBack() }}>
-    <Reader {session} getStartPosition={() => appState.reader.currentPosition} onClose={handleClose} />
+    <Reader {session} onClose={handleClose} />
 </div>

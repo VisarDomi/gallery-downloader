@@ -1,5 +1,6 @@
 import { THUMB_WIDTH } from '../config.js';
 import type { Gallery, GalleryListItem, PagePosition } from '../types.js';
+import type { LogEmit } from '../services/LogService.js';
 import * as api from '../services/api.js';
 import * as db from '../services/db.js';
 import type { UIState } from './ui.svelte.js';
@@ -8,6 +9,20 @@ const scheduleIdle = globalThis.requestIdleCallback ?? ((cb: () => void) => setT
 
 let sessionCounter = 0;
 
+type LoadSource = 'idle' | 'observer' | 'eager';
+
+/** Per-session accounting — plain counters, not reactive. */
+interface LoadStats {
+    total: number;
+    loaded: number;
+    failed: number;
+    /** Pages initiated by each source (before dedup guard). */
+    bySource: Record<LoadSource, number>;
+    idleCallbacksRun: number;
+    idleComplete: boolean;
+    startMs: number;
+}
+
 /** Owns all resources for one open→close reader cycle. */
 export class ReaderSession {
     readonly id: number;
@@ -15,16 +30,69 @@ export class ReaderSession {
     readonly abortController: AbortController;
     readonly blobUrls = new Map<number, string>();
     readonly loadingPages = new Set<number>();
+    readonly loadStats: LoadStats;
+    private readonly emit: LogEmit;
     private readonly timers = new Set<ReturnType<typeof setTimeout>>();
     private readonly rafIds = new Set<number>();
     private observer: IntersectionObserver | null = null;
     private scrollCleanup: (() => void) | null = null;
     private _dropped = false;
 
-    constructor(gallery: Gallery) {
+    readonly startPosition: PagePosition;
+
+    constructor(gallery: Gallery, emit: LogEmit, startPosition: PagePosition) {
         this.id = ++sessionCounter;
         this.gallery = gallery;
+        this.emit = emit;
+        this.startPosition = startPosition;
         this.abortController = new AbortController();
+        this.loadStats = {
+            total: gallery.count,
+            loaded: 0,
+            failed: 0,
+            bySource: { idle: 0, observer: 0, eager: 0 },
+            idleCallbacksRun: 0,
+            idleComplete: false,
+            startMs: 0,
+        };
+    }
+
+    // -- Load tracking --
+
+    beginLoading(startPage: number, hasRoot: boolean) {
+        this.loadStats.startMs = Date.now();
+        this.emit('reader-setup', {
+            galleryId: this.gallery.gallery_id,
+            pageCount: this.loadStats.total,
+            startPage,
+            hasRoot,
+        });
+    }
+
+    /** Record that a page load was initiated (passed the dedup guard). */
+    recordLoadStart(source: LoadSource) {
+        this.loadStats.bySource[source]++;
+    }
+
+    recordLoadOk() {
+        this.loadStats.loaded++;
+    }
+
+    recordLoadFail() {
+        this.loadStats.failed++;
+    }
+
+    recordIdleCallback() {
+        this.loadStats.idleCallbacksRun++;
+    }
+
+    markIdleDone(pagesScheduled: number) {
+        this.loadStats.idleComplete = true;
+        this.emit('reader-idle-done', {
+            galleryId: this.gallery.gallery_id,
+            idleCallbacks: this.loadStats.idleCallbacksRun,
+            pagesScheduled,
+        });
     }
 
     get signal(): AbortSignal {
@@ -102,6 +170,21 @@ export class ReaderSession {
         if (this._dropped) return;
         this._dropped = true;
 
+        // Emit load summary before cleaning up
+        const s = this.loadStats;
+        this.emit('reader-drop', {
+            galleryId: this.gallery.gallery_id,
+            total: s.total,
+            loaded: s.loaded,
+            failed: s.failed,
+            idle: s.bySource.idle,
+            observer: s.bySource.observer,
+            eager: s.bySource.eager,
+            idleCallbacks: s.idleCallbacksRun,
+            idleComplete: s.idleComplete,
+            elapsedMs: s.startMs > 0 ? Date.now() - s.startMs : 0,
+        });
+
         this.abortController.abort();
 
         this.observer?.disconnect();
@@ -129,11 +212,13 @@ export class ReaderState {
     progress = $state<Record<number, PagePosition>>({});
 
     private ui: UIState;
+    private emit: LogEmit;
     private debounceTimers = new Map<number, ReturnType<typeof setTimeout>>();
     private _lastSyncedPageIndex = -1;
 
-    constructor(ui: UIState) {
+    constructor(ui: UIState, emit: LogEmit) {
         this.ui = ui;
+        this.emit = emit;
     }
 
     /** Backward-compat readonly getter for templates and session persistence. */
@@ -162,10 +247,10 @@ export class ReaderState {
         this.session?.drop();
 
         const gallery = await api.getGallery(item.gallery_id);
-        const s = new ReaderSession(gallery);
+        const position: PagePosition = { pageIndex: startPage, fraction: 0 };
+        const s = new ReaderSession(gallery, this.emit, position);
         this.session = s;
 
-        const position: PagePosition = { pageIndex: startPage, fraction: 0 };
         this._lastSyncedPageIndex = -1;
         this.currentPosition = position;
         this.saveProgress(gallery.gallery_id, position);
@@ -237,7 +322,7 @@ export class ReaderState {
 
     async restoreReader(galleryId: number, position: PagePosition): Promise<boolean> {
         const gallery = await api.getGallery(galleryId);
-        const s = new ReaderSession(gallery);
+        const s = new ReaderSession(gallery, this.emit, position);
         this.session = s;
         this._lastSyncedPageIndex = -1;
         this.currentPosition = position;
