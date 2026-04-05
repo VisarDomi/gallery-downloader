@@ -1,6 +1,3 @@
-# One entry per line: type:name (language defaults to japanese)
-# Supports: artist, group, female, male, series, character
-# Override language with: language:X type:name
 artist:shunjou_shuusuke
 artist:yoko_juusuke
 group:ichigo_crepe_oomorigumi
@@ -196,3 +193,4 @@ artist:ribyuhki
 artist:yumeno_tanuki
 group:eroquis
 artist:drachef
+artist:kanimaro
