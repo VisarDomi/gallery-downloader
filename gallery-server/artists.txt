@@ -196,3 +196,4 @@ artist:drachef
 artist:kanimaro
 group:fukurou_naru_tori
 group:whitewill
+artist:minazuki_mikka
