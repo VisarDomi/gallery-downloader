@@ -7,3 +7,6 @@ build/
 .venv/
 gallery-server/gallery-dl/
 gallery-server/sprite-gen/sprite-gen
+gallery-server/artists.txt
+gallery-server/filters.txt
+gallery-server/queries.txt

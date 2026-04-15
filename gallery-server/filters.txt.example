@@ -1,0 +1,9 @@
+# Base filters applied to ALL resolution (artists + queries)
+# Language for all nozomi lookups
+language:japanese
+
+# Excluded tags — subtracted from both artist and query results
+-tag:anthology
+-tag:animated
+-female:mind_control
+-male:mind_break
