@@ -15,7 +15,6 @@ export async function runScan(): Promise<void> {
         let stderr = '';
 
         child.stdout.on('data', (chunk) => {
-            // Scanner now prints summary to stdout
             process.stdout.write(chunk);
         });
 
@@ -36,6 +35,34 @@ export async function runScan(): Promise<void> {
         child.on('error', (err) => {
             console.error('Failed to spawn scanner binary', err);
             resolve();
+        });
+    });
+}
+
+/** Index a single gallery by ID. Returns true on success. */
+export async function indexGallery(galleryId: string): Promise<boolean> {
+    return new Promise((resolve) => {
+        const child = spawn(BINARY_PATH, [MEDIA_ROOT, DB_PATH, galleryId]);
+
+        let stdout = '';
+        let stderr = '';
+
+        child.stdout.on('data', (chunk) => { stdout += chunk; });
+        child.stderr.on('data', (chunk) => { stderr += chunk; });
+
+        child.on('close', (code) => {
+            if (code !== 0) {
+                console.error(`[index] failed ${galleryId}: ${stderr.trim()}`);
+                resolve(false);
+            } else {
+                console.log(`[index] ${stdout.trim()}`);
+                resolve(true);
+            }
+        });
+
+        child.on('error', (err) => {
+            console.error(`[index] spawn error for ${galleryId}: ${err.message}`);
+            resolve(false);
         });
     });
 }

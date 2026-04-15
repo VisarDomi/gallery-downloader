@@ -1,17 +1,17 @@
 #!/usr/bin/env python3
 """
-Sync script: reads artists.txt and queries.txt, checks hitomi nozomi indexes
-against the local gallery-dl archive, and queues only NEW galleries for download.
+Sync diagnostic tool (READ-ONLY). Shows raw hitomi counts per entry.
 
-artists.txt: one entry per line (artist:name, group:name, etc.) — 1 HTTP request each.
-queries.txt: one compound query per line — parsed like the search bar, multiple fetches
-             with set intersection (positives) and subtraction (negatives).
+IMPORTANT: This script does NOT apply the filter policy from filters.txt.
+The canonical sync lives in the downloader service (manifest-resolver.ts).
+Use the TS sync for actual downloads:
+    curl -k -X POST https://localhost:11558/sync
+
+This script is for dry-run diagnostics only.
 
 Usage:
     python3 sync.py                  # dry-run: show what's new
-    python3 sync.py --queue          # send new galleries to downloader
     python3 sync.py --verify         # dry-run verify (show existing gallery count)
-    python3 sync.py --queue --verify # queue new, then append all existing for gap-filling
 """
 
 import struct
@@ -21,7 +21,6 @@ import os
 import urllib.parse
 import urllib.request
 import ssl
-import json
 from pathlib import Path
 
 DOMAIN = "gold-usergeneratedcontent.net"
@@ -31,7 +30,7 @@ HITOMI_DIR = os.path.expanduser("~/Pictures/gallery-dl/hitomi")
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 ARTISTS_FILE = os.path.join(SCRIPT_DIR, "artists.txt")
 QUERIES_FILE = os.path.join(SCRIPT_DIR, "queries.txt")
-DOWNLOADER_URL = "https://localhost:11558/queue"
+FILTERS_FILE = os.path.join(SCRIPT_DIR, "filters.txt")
 DEFAULT_LANGUAGE = "japanese"
 
 
@@ -65,25 +64,6 @@ def fetch_nozomi(entry_type: str, name: str, language: str) -> list[int]:
     return decode_nozomi(http_get(url))
 
 
-def parse_entry(line: str) -> tuple[str, str, str]:
-    """Parse a line like 'artist:name' or 'language:korean artist:name'.
-    Returns (entry_type, name, language)."""
-    parts = line.split()
-    language = DEFAULT_LANGUAGE
-    entry_type = None
-    name = None
-
-    for part in parts:
-        key, _, val = part.partition(":")
-        if key == "language":
-            language = val
-        else:
-            entry_type = key
-            name = val
-
-    return entry_type, name, language
-
-
 def hitomi_url(entry_type: str, name: str, language: str) -> str:
     """Construct the hitomi.la browsable URL for this entry."""
     return f"{ROOT}/{entry_type}/{name}-{language}.html"
@@ -91,6 +71,32 @@ def hitomi_url(entry_type: str, name: str, language: str) -> str:
 
 def gallery_url(gallery_id: int) -> str:
     return f"{ROOT}/galleries/{gallery_id}.html"
+
+
+# -- Filters parsing --
+
+def load_filters(filepath: str) -> tuple[str, list[tuple[str, str]]]:
+    """Load filters.txt. Returns (language, [(namespace, value), ...])."""
+    language = DEFAULT_LANGUAGE
+    negatives: list[tuple[str, str]] = []
+
+    if not os.path.exists(filepath):
+        return language, negatives
+
+    with open(filepath) as f:
+        for raw in f:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            if line.startswith("language:"):
+                language = line[len("language:"):].replace("_", " ")
+                continue
+            if line.startswith("-") and ":" in line[1:]:
+                token = line[1:]
+                ns, _, val = token.partition(":")
+                negatives.append((ns, val.replace("_", " ")))
+
+    return language, negatives
 
 
 # -- Query parsing (for queries.txt) --
@@ -113,11 +119,9 @@ class QueryToken:
 KNOWN_NAMESPACES = {"type", "language", "tag", "female", "male", "artist", "group", "series", "character"}
 
 
-def parse_query(raw: str) -> tuple[list[QueryToken], str]:
-    """Parse a query string into deduplicated tokens and language.
-    Returns (tokens, language). Language defaults to DEFAULT_LANGUAGE."""
+def parse_query(raw: str, language: str, negatives: list[tuple[str, str]]) -> tuple[list[QueryToken], str]:
+    """Parse a query string + merge filters. Returns (tokens, language)."""
     parts = raw.strip().split()
-    language = DEFAULT_LANGUAGE
     seen: set[QueryToken] = set()
     tokens: list[QueryToken] = []
 
@@ -132,11 +136,14 @@ def parse_query(raw: str) -> tuple[list[QueryToken], str]:
         if ns not in KNOWN_NAMESPACES:
             continue
 
-        if ns == "language":
-            language = val.replace("_", " ")
-            continue
-
         token = QueryToken(negated, ns, val.replace("_", " "))
+        if token not in seen:
+            seen.add(token)
+            tokens.append(token)
+
+    # Merge filter negatives
+    for ns, val in negatives:
+        token = QueryToken(True, ns, val)
         if token not in seen:
             seen.add(token)
             tokens.append(token)
@@ -144,12 +151,12 @@ def parse_query(raw: str) -> tuple[list[QueryToken], str]:
     return tokens, language
 
 
-def sync_query(raw: str, archived: set[int]) -> tuple[int, int, list[str]]:
-    """Sync a compound query. Returns (remote_count, new_count, new_urls)."""
-    tokens, language = parse_query(raw)
+def sync_query(raw: str, language: str, negatives: list[tuple[str, str]], archived: set[int]) -> tuple[int, int, list[str]]:
+    """Sync a compound query with filters merged. Returns (remote_count, new_count, new_urls)."""
+    tokens, lang = parse_query(raw, language, negatives)
 
     positives = [t for t in tokens if not t.negated]
-    negatives = [t for t in tokens if t.negated]
+    neg_tokens = [t for t in tokens if t.negated]
 
     if not positives:
         print(f"  SKIP (no positive tokens): {raw}")
@@ -160,7 +167,7 @@ def sync_query(raw: str, archived: set[int]) -> tuple[int, int, list[str]]:
     for token in positives:
         label = f"{token.namespace}:{token.value}"
         try:
-            ids = set(fetch_nozomi(token.namespace, token.value, language))
+            ids = set(fetch_nozomi(token.namespace, token.value, lang))
         except Exception as e:
             print(f"  ERROR fetching {label}: {e}")
             return 0, 0, []
@@ -168,10 +175,10 @@ def sync_query(raw: str, archived: set[int]) -> tuple[int, int, list[str]]:
         result_ids = ids if result_ids is None else result_ids & ids
 
     # Subtract all negative token sets
-    for token in negatives:
+    for token in neg_tokens:
         label = f"{token.namespace}:{token.value}"
         try:
-            ids = set(fetch_nozomi(token.namespace, token.value, language))
+            ids = set(fetch_nozomi(token.namespace, token.value, lang))
         except Exception as e:
             print(f"  ERROR fetching -{label}: {e}")
             continue
@@ -223,26 +230,6 @@ def load_disk_gallery_ids() -> list[int]:
     return ids
 
 
-def post_to_downloader(urls: list[str]) -> bool:
-    payload = json.dumps({"urls": "\n".join(urls)}).encode()
-    req = urllib.request.Request(
-        DOWNLOADER_URL,
-        data=payload,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
-    try:
-        with urllib.request.urlopen(req, context=ctx) as resp:
-            result = json.loads(resp.read())
-            return result.get("status") == "ok"
-    except Exception as e:
-        print(f"  ERROR posting to downloader: {e}")
-        return False
-
-
 def load_lines(filepath: str) -> list[str]:
     """Load non-empty, non-comment lines from a file. Returns [] if file missing."""
     if not os.path.exists(filepath):
@@ -252,9 +239,14 @@ def load_lines(filepath: str) -> list[str]:
 
 
 def main():
-    do_queue = "--queue" in sys.argv
+    if "--queue" in sys.argv:
+        print("ERROR: --queue is removed. Use the TS sync instead:")
+        print("  curl -k -X POST https://localhost:11558/sync")
+        sys.exit(1)
+
     do_verify = "--verify" in sys.argv
 
+    language, negatives = load_filters(FILTERS_FILE)
     artist_lines = load_lines(ARTISTS_FILE)
     query_lines = load_lines(QUERIES_FILE)
 
@@ -262,23 +254,22 @@ def main():
         print("Both artists.txt and queries.txt are empty or missing.")
         return
 
-    mode_parts = []
-    if do_queue:
-        mode_parts.append("QUEUE")
+    mode_parts = ["DRY-RUN"]
     if do_verify:
         mode_parts.append("VERIFY")
-    if not mode_parts:
-        mode_parts.append("DRY-RUN")
 
-    print(f"Loaded {len(artist_lines)} artists + {len(query_lines)} queries")
+    print(f"Loaded {len(artist_lines)} artists + {len(query_lines)} queries + {len(negatives)} filters")
+    print(f"Language: {language}")
     print(f"Mode: {' + '.join(mode_parts)}")
+    print("NOTE: Artist counts are UNFILTERED (no exclusions applied).")
+    print("      The TS sync applies all filter negatives to artist IDs.")
     print("=" * 60)
 
     print("Loading archive...", end=" ", flush=True)
     archived = load_archived_gallery_ids()
     print(f"{len(archived)} galleries downloaded\n")
 
-    # --- Phase 1a: artists.txt (single-index entries) ---
+    # --- Phase 1: artists.txt (single-index entries, NO filter application) ---
     all_new_urls = []
     total_remote = 0
     total_new = 0
@@ -287,7 +278,16 @@ def main():
         print(f"--- artists.txt ({len(artist_lines)} entries) ---")
 
     for line in artist_lines:
-        entry_type, name, language = parse_entry(line)
+        parts = line.split()
+        entry_type = None
+        name = None
+
+        for part in parts:
+            key, _, val = part.partition(":")
+            if key in ("artist", "group"):
+                entry_type = key
+                name = val
+
         if not entry_type or not name:
             print(f"  SKIP (bad format): {line}")
             continue
@@ -316,14 +316,14 @@ def main():
             if len(urls) > 3:
                 print(f"  ... +{len(urls) - 3} more")
 
-    # --- Phase 1b: queries.txt (compound queries) ---
+    # --- Phase 2: queries.txt (with filters merged) ---
     if query_lines:
-        print(f"\n--- queries.txt ({len(query_lines)} queries) ---")
+        print(f"\n--- queries.txt ({len(query_lines)} queries, filters merged) ---")
 
     for raw in query_lines:
         print(f"[{raw}]")
 
-        remote_count, new_count, new_urls = sync_query(raw, archived)
+        remote_count, new_count, new_urls = sync_query(raw, language, negatives, archived)
         total_remote += remote_count
         total_new += new_count
 
@@ -339,33 +339,17 @@ def main():
     print("\n" + "=" * 60)
     print(f"Total: {total_remote} remote, {len(archived)} archived, {total_new} new")
 
-    # --- Phase 2: verify existing galleries ---
-    verify_urls = []
+    # --- Verify existing galleries ---
     if do_verify:
         disk_ids = load_disk_gallery_ids()
-        verify_urls = [gallery_url(gid) for gid in disk_ids]
-        print(f"Verify: {len(verify_urls)} existing galleries will be re-checked for gaps")
+        print(f"Verify: {len(disk_ids)} existing galleries on disk")
 
-    # --- Queue ---
-    combined = all_new_urls + verify_urls
-
-    if not combined:
-        print("Nothing to do.")
-        return
-
-    if do_queue:
-        print(f"\nQueueing {len(combined)} galleries ({len(all_new_urls)} new + {len(verify_urls)} verify)...")
-        if post_to_downloader(combined):
-            print("Queued successfully!")
-        else:
-            print("Failed. Is the downloader running?")
+    # --- Summary ---
+    if all_new_urls:
+        print(f"\n{len(all_new_urls)} new.")
     else:
-        parts = []
-        if all_new_urls:
-            parts.append(f"{len(all_new_urls)} new")
-        if verify_urls:
-            parts.append(f"{len(verify_urls)} verify")
-        print(f"\n{' + '.join(parts)}. Run with --queue to download.")
+        print("\nNothing new.")
+    print("To queue downloads, use: curl -k -X POST https://localhost:11558/sync")
 
 
 if __name__ == "__main__":

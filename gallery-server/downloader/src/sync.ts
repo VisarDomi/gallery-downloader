@@ -1,13 +1,12 @@
 /**
- * Sync orchestrator: ties resolver, diff, and queue together.
+ * Sync orchestrator: ties manifest resolution, diff, and queue together.
  *
- * Reads manifests → resolves IDs from hitomi → diffs against local → feeds queue.
- * Single writer to the queue. All other access is read-only.
+ * Delegates ID resolution to manifest-resolver (single owner of that policy).
+ * Owns: diffing against local, feeding the queue, progress reporting.
  */
 
 import path from 'path';
-import { loadManifest } from './manifest.js';
-import { resolveArtistEntry, resolveQuery, resolveTag } from './resolver.js';
+import { resolveManifest } from './manifest-resolver.js';
 import { computeDiff } from './diff.js';
 import { queueManager } from './queue.manager.js';
 import { socketService } from './socket.service.js';
@@ -49,17 +48,7 @@ function log(msg: string) {
     socketService.emitLog(`[sync] ${msg}\n`);
 }
 
-function resetStatus(artistsTotal: number, queriesTotal: number): void {
-    currentSync = {
-        phase: 'resolving-artists',
-        artistsResolved: 0, artistsTotal,
-        queriesResolved: 0, queriesTotal,
-        wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0,
-        errors: [],
-    };
-}
-
-export async function runSync(artistsPath: string, queriesPath: string): Promise<SyncStatus> {
+export async function runSync(filtersPath: string, artistsPath: string, queriesPath: string): Promise<SyncStatus> {
     if (syncRunning) {
         log('Sync already running, skipping.');
         return currentSync;
@@ -68,57 +57,42 @@ export async function runSync(artistsPath: string, queriesPath: string): Promise
     syncRunning = true;
 
     try {
-        const manifest = loadManifest(artistsPath, queriesPath);
-        resetStatus(manifest.artists.length, manifest.queries.length);
+        currentSync = {
+            phase: 'resolving-artists',
+            artistsResolved: 0, artistsTotal: 0,
+            queriesResolved: 0, queriesTotal: 0,
+            wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0,
+            errors: [],
+        };
 
-        log(`Loaded manifest: ${manifest.artists.length} artist entries, ${manifest.queries.length} queries`);
+        const resolution = await resolveManifest(filtersPath, artistsPath, queriesPath, {
+            onArtistResolved: (resolved, total, idsSoFar) => {
+                currentSync.artistsResolved = resolved;
+                currentSync.artistsTotal = total;
+                if (resolved % 20 === 0) {
+                    log(`Artists: ${resolved}/${total} (${idsSoFar} IDs so far)`);
+                }
+            },
+            onTagExcluded: (tag, removed, remaining) => {
+                log(`${tag} filter: ${removed} removed (${remaining} remaining)`);
+            },
+            onQueryResolved: (resolved, total, queryIds, totalIds) => {
+                currentSync.phase = 'resolving-queries';
+                currentSync.queriesResolved = resolved;
+                currentSync.queriesTotal = total;
+                log(`Query ${resolved}/${total}: +${queryIds} IDs (${totalIds} total)`);
+            },
+        });
 
-        // Phase 1: Resolve artist entries
-        const wantedIds = new Set<number>();
+        currentSync.errors.push(...resolution.errors);
+        currentSync.wantedCount = resolution.wantedIds.size;
 
-        currentSync.phase = 'resolving-artists';
-        for (const entry of manifest.artists) {
-            const result = await resolveArtistEntry(entry.namespace, entry.value, entry.language);
-            for (const id of result.ids) wantedIds.add(id);
-            currentSync.errors.push(...result.errors);
-            currentSync.artistsResolved++;
+        log(`Loaded manifest: ${resolution.artistCount} artist entries, ${resolution.queryCount} queries`);
+        log(`Total wanted: ${resolution.wantedIds.size} unique IDs`);
 
-            if (currentSync.artistsResolved % 20 === 0) {
-                log(`Artists: ${currentSync.artistsResolved}/${currentSync.artistsTotal} (${wantedIds.size} IDs so far)`);
-            }
-        }
-
-        log(`Artists resolved: ${wantedIds.size} unique IDs from ${manifest.artists.length} entries`);
-
-        // Phase 1b: Subtract excluded tags from artist IDs
-        const EXCLUDED_TAGS = ['tag:anthology', 'tag:animated'];
-        for (const tag of EXCLUDED_TAGS) {
-            const result = await resolveTag(tag, 'japanese');
-            if (result.errors.length > 0) {
-                currentSync.errors.push(...result.errors);
-            } else {
-                const before = wantedIds.size;
-                for (const id of result.ids) wantedIds.delete(id);
-                log(`${tag} filter: ${before - wantedIds.size} removed (${wantedIds.size} remaining)`);
-            }
-        }
-
-        // Phase 2: Resolve query entries
-        currentSync.phase = 'resolving-queries';
-        for (const entry of manifest.queries) {
-            const result = await resolveQuery(entry.raw);
-            for (const id of result.ids) wantedIds.add(id);
-            currentSync.errors.push(...result.errors);
-            currentSync.queriesResolved++;
-            log(`Query ${currentSync.queriesResolved}/${currentSync.queriesTotal}: +${result.ids.size} IDs (${wantedIds.size} total)`);
-        }
-
-        currentSync.wantedCount = wantedIds.size;
-        log(`Total wanted: ${wantedIds.size} unique IDs`);
-
-        // Phase 3: Diff against local
+        // Diff against local
         currentSync.phase = 'diffing';
-        const diff = computeDiff(wantedIds, INDEX_DB_PATH, GALLERY_ROOT);
+        const diff = computeDiff(resolution.wantedIds, INDEX_DB_PATH, GALLERY_ROOT);
 
         currentSync.newCount = diff.toDownload.length;
         currentSync.resumeCount = diff.toResume.length;
@@ -126,7 +100,7 @@ export async function runSync(artistsPath: string, queriesPath: string): Promise
 
         log(`Diff: ${diff.toDownload.length} new, ${diff.toResume.length} to resume, ${diff.alreadyLocal} already local`);
 
-        // Phase 4: Feed the queue (resume first, then new)
+        // Feed the queue (resume first, then new)
         const allIds = [...diff.toResume, ...diff.toDownload];
         if (allIds.length > 0) {
             queueManager.appendQueue(allIds);

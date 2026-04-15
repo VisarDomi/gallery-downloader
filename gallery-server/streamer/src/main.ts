@@ -19,7 +19,7 @@ app.use(createProxyMiddleware({
     target: 'https://localhost:11557',
     secure: false,
     changeOrigin: true,
-    pathFilter: ['/search', '/gallery', '/galleries', '/refresh', '/facets'],
+    pathFilter: ['/search', '/gallery', '/galleries', '/refresh', '/facets', '/index'],
 }));
 
 // Proxy to downloader

@@ -1,14 +1,28 @@
 # Architecture Decisions
 
-## Sync model: artists.txt and queries.txt are unioned
+## Three-file manifest: filters.txt, artists.txt, queries.txt
 
-**Decision:** `artists.txt` and `queries.txt` are the two sources of truth for what galleries to download. Sync resolves both independently and takes their union — a gallery is wanted if it matches ANY artist entry OR ANY query.
+**Decision:** Three files define what to download. `filters.txt` owns base filter policy (language + exclusions). `artists.txt` owns tracked creators. `queries.txt` owns specific positive tag searches. `manifest-resolver.ts` is the single owner of resolution logic — it reads all three and produces the wanted ID set.
 
-**Why:** Artists and queries serve different purposes. Artists track a creator's full catalog. Queries find galleries matching complex tag filters regardless of creator. The union means each file is self-contained.
+**Ownership:**
+- `filters.txt` — language (`japanese`) + all negative tokens (`-tag:anthology`, `-female:scat`, etc.)
+- `artists.txt` — just `namespace:value` entries (no language, no exclusions)
+- `queries.txt` — just positive tokens per line (e.g. `female:cheating`)
+- `manifest-resolver.ts` — reads all three, applies filter policy to both artists and queries
 
-**Anthology exclusion:** After artist IDs are resolved, the sync orchestrator subtracts all `tag:anthology` IDs (japanese language, hardcoded). This is a sync-level policy — the resolver stays pure. Anthologies are multi-artist compilations that bloat disk usage (56% of storage for 18% of galleries) while the individual works by tracked artists are already captured. `queries.txt` independently excludes anthologies via its own `-tag:anthology` token.
+**Resolution flow:**
+1. Resolve all artist/group entries in the filter language → union of IDs
+2. Subtract ALL filter negatives from artist IDs (one HTTP request per negative token)
+3. For each query: merge query positives with filter language + negatives → resolve via `resolveQuery`
+4. Union steps 2 and 3
 
-**Implication for removal:** A gallery can only be considered an orphan if it's no longer wanted by ANY entry in EITHER file. Removing an artist doesn't orphan galleries that a query still matches, and vice versa. The remove endpoint must re-resolve the entire remaining manifest (both files) to compute the still-wanted set before it can safely identify orphans.
+**Why three files:** Previously, exclusions were scattered: hardcoded `EXCLUDED_TAGS` in TS (only 2 tags), inline in `queries.txt` (35 tokens), missing from `sync.py`. A gallery tagged `female:scat` by a tracked artist would download. Now all exclusions live in `filters.txt` and apply everywhere. Adding an exclusion = one line, one file.
+
+**No language override:** Language is fixed in `filters.txt`. Queries and artists do not specify language — it's inherited. This avoids conditional "which language wins" logic.
+
+**sync.py:** Diagnostic-only tool (no `--queue`). Does NOT apply filter policy. All queuing goes through the TS sync endpoint (`POST /sync` on port 11558). The systemd timer calls `curl -sk -X POST https://localhost:11558/sync`.
+
+**Implication for removal:** A gallery can only be considered an orphan if it's no longer wanted by ANY entry in EITHER file (with filters applied). The remove endpoint re-resolves the entire remaining manifest via `resolveManifest` (same function as sync) to compute the still-wanted set.
 
 ## Remove endpoint: ownership boundaries
 
@@ -47,3 +61,39 @@
 **Decision:** If any artist/query resolution fails during the re-resolve step, abort the entire operation, log each failure to journalctl, and roll back the file change. Never proceed to deletion with an incomplete wanted set.
 
 **Why:** The resolver swallows HTTP errors and returns empty sets for failed entries. An incomplete wanted set means galleries that ARE still wanted could appear as orphans and get deleted. This is silent data loss. The only safe response to a flaky hitomi API is to refuse to delete and let the user retry later.
+
+## Local superset: disk is the source of truth
+
+**Decision:** Once a gallery is downloaded, it stays forever — unless it has a filter-negative tag. Galleries deindexed from hitomi's nozomi are kept. The local collection is a superset of hitomi.
+
+**Why:** Hitomi's nozomi index rotates — galleries by tracked artists disappear from the API over time. The whole point of local storage is preserving what hitomi doesn't. Deletion is only for policy violations (filter-negative tags), never for "hitomi no longer lists it."
+
+**Cleanup rule:** A local gallery is removed ONLY if it has a filter-negative tag. The wanted set from nozomi determines what to download, not what to keep.
+
+## Post-download validation: language check
+
+**Decision:** After gallery-dl completes a download, the queue manager calls a validator. The validator reads `info.json` and checks `language` against the filter language. Mismatch → gallery is deleted immediately.
+
+**Why:** Hitomi's nozomi URL includes the language (`artist/name-japanese.nozomi`), but the API sometimes returns non-japanese gallery IDs. gallery-dl downloads whatever ID it's given. Without validation, wrong-language galleries accumulate (~3 out of ~13000 historically). The check is at the download boundary — where external data enters the system.
+
+**Ownership:** The queue manager owns the post-download hook (`setValidator`). `main.ts` provides the validator closure with the filter language. The queue manager doesn't know about filters or info.json — it just calls the function.
+
+## Single-gallery indexing on download completion
+
+**Decision:** After each successful download + validation, the downloader notifies the indexer via `POST /index/:id`. The indexer runs the Go scanner in single-gallery mode and updates the DB. The gallery appears on the frontend immediately.
+
+**Why:** Previously, galleries sat unindexed until the daily full scan. With thousands of galleries queuing, this meant hours/days before new downloads appeared in the UI. Single-gallery indexing takes ~13ms per gallery.
+
+**Ownership:**
+- Queue manager fires `onComplete(galleryId)` callback — doesn't know about the indexer
+- `main.ts` wires the callback to an HTTP call to the indexer
+- Indexer owns all index DB writes (single writer preserved)
+- Go scanner handles both modes: full walk (daily safety net) and single-gallery (per-download)
+
+**Daily scan remains:** The full scan at startup and via `gallery-refresh.timer` catches strays from crashes, power loss, or manual file operations. Single-gallery indexing is the primary path; full scan is the safety net.
+
+## Archive DB is gallery-dl's concern
+
+**Decision:** The archive DB (`hitomi.sqlite3`) is owned entirely by gallery-dl. The app never writes to it. Inconsistencies in the archive (e.g., unarchived galleries) are gallery-dl's problem to self-correct on next encounter.
+
+**Why:** The archive DB's format and semantics are internal to gallery-dl. Writing to it would couple the app to gallery-dl's implementation details. The app's source of truth is the disk (files exist or they don't) and the index DB (what's searchable). The archive only affects download efficiency, not correctness.

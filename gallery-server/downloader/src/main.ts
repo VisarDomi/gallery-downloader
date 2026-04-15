@@ -12,9 +12,11 @@ import { queueManager } from './queue.manager.js';
 import { runSync, getSyncStatus } from './sync.js';
 import { runRemove, getRemoveStatus, gitCommit } from './remove.js';
 import { loadManifest } from './manifest.js';
+import { hitomi } from 'gallery-sources';
 
 const app = express();
 
+const FILTERS_PATH = path.resolve(import.meta.dirname, '..', '..', 'filters.txt');
 const ARTISTS_PATH = path.resolve(import.meta.dirname, '..', '..', 'artists.txt');
 const QUERIES_PATH = path.resolve(import.meta.dirname, '..', '..', 'queries.txt');
 
@@ -95,7 +97,7 @@ app.post('/cancel', (_req, res) => {
 // --- SYNC ROUTES ---
 app.post('/sync', async (_req, res) => {
     res.json({ status: 'started' });
-    runSync(ARTISTS_PATH, QUERIES_PATH).catch(console.error);
+    runSync(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH).catch(console.error);
 });
 
 app.get('/sync/status', (_req, res) => {
@@ -114,7 +116,7 @@ app.post('/remove', (req, res) => {
         return;
     }
     res.json({ status: 'started' });
-    runRemove(file, line.trim(), ARTISTS_PATH, QUERIES_PATH).catch(console.error);
+    runRemove(file, line.trim(), FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH).catch(console.error);
 });
 
 app.get('/remove/status', (_req, res) => {
@@ -123,7 +125,7 @@ app.get('/remove/status', (_req, res) => {
 
 // --- ARTISTS ENDPOINTS ---
 app.get('/artists', (_req, res) => {
-    const manifest = loadManifest(ARTISTS_PATH, QUERIES_PATH);
+    const manifest = loadManifest(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH);
     const entries = manifest.artists.map(a => `${a.namespace}:${a.value}`);
     console.log(`[artists] GET /artists: ${entries.length} entries`);
     res.json(entries);
@@ -166,7 +168,7 @@ app.post('/artists/add', (req, res) => {
 
 // --- QUERIES ENDPOINT (for frontend saved searches) ---
 app.get('/queries', (_req, res) => {
-    const manifest = loadManifest(ARTISTS_PATH, QUERIES_PATH);
+    const manifest = loadManifest(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH);
     res.json(manifest.queries.map(q => q.raw));
 });
 
@@ -178,11 +180,11 @@ function watchManifests() {
         if (debounceTimer) clearTimeout(debounceTimer);
         debounceTimer = setTimeout(() => {
             console.log('[watch] Manifest changed, triggering sync...');
-            runSync(ARTISTS_PATH, QUERIES_PATH).catch(console.error);
+            runSync(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH).catch(console.error);
         }, 2000);
     };
 
-    for (const filePath of [ARTISTS_PATH, QUERIES_PATH]) {
+    for (const filePath of [FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH]) {
         try {
             fs.watch(filePath, () => triggerSync());
             console.log(`[watch] Watching ${path.basename(filePath)}`);
@@ -191,6 +193,41 @@ function watchManifests() {
         }
     }
 }
+
+// --- POST-DOWNLOAD HOOKS ---
+// Rejects galleries whose language doesn't match filters.txt.
+// Hitomi's nozomi sometimes returns wrong-language IDs for an artist.
+const GALLERY_ROOT = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
+const filterLanguage = loadManifest(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH).filters.language;
+
+queueManager.setValidator((galleryId) => {
+    const infoPath = path.join(GALLERY_ROOT, galleryId, hitomi.metadataFile);
+    try {
+        const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
+        if (info.language !== filterLanguage) {
+            return { valid: false, reason: `language "${info.language}" != "${filterLanguage}"` };
+        }
+        return { valid: true };
+    } catch {
+        return { valid: true };
+    }
+});
+
+// Notify indexer after each successful download
+const INDEXER_PORT = 11557;
+queueManager.setOnComplete((galleryId) => {
+    const req = https.request({
+        hostname: 'localhost',
+        port: INDEXER_PORT,
+        path: `/index/${galleryId}`,
+        method: 'POST',
+        rejectUnauthorized: false,
+    }, (res) => { res.resume(); });
+    req.on('error', (err) => {
+        console.log(`[index-notify] failed for ${galleryId}: ${err.message}`);
+    });
+    req.end();
+});
 
 // --- START ---
 server.listen(CONFIG.PORT, '0.0.0.0', () => {

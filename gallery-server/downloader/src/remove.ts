@@ -3,8 +3,8 @@ import path from 'path';
 import https from 'https';
 import { execSync } from 'child_process';
 import Database from 'better-sqlite3';
-import { loadManifest, type ArtistEntry } from './manifest.js';
-import { resolveArtistEntry, resolveQuery } from './resolver.js';
+import { loadManifest } from './manifest.js';
+import { resolveManifest, resolveEntryWithFilters } from './manifest-resolver.js';
 import { CONFIG } from './config.js';
 
 const INDEX_DB_PATH = path.join(CONFIG.WORKING_DIR, 'gallery-dl', 'gallery-index.db');
@@ -123,66 +123,10 @@ export function gitCommit(filePath: string, message: string): boolean {
     }
 }
 
-function findArtistEntry(manifest: ReturnType<typeof loadManifest>, line: string): ArtistEntry | null {
-    const colonIdx = line.indexOf(':');
-    if (colonIdx === -1) return null;
-    const ns = line.slice(0, colonIdx);
-    const val = line.slice(colonIdx + 1);
-    return manifest.artists.find(a => a.namespace === ns && a.value === val) ?? null;
-}
-
-async function resolveRemovedIds(
-    file: 'artists' | 'queries',
-    line: string,
-    manifest: ReturnType<typeof loadManifest>,
-): Promise<Set<number>> {
-    if (file === 'artists') {
-        const entry = findArtistEntry(manifest, line);
-        if (!entry) return new Set();
-        const result = await resolveArtistEntry(entry.namespace, entry.value, entry.language);
-        return result.ids;
-    } else {
-        const result = await resolveQuery(line);
-        return result.ids;
-    }
-}
-
-interface ResolveResult {
-    wantedIds: Set<number>;
-    errors: string[];
-}
-
-async function resolveRemainingManifest(
-    artistsPath: string,
-    queriesPath: string,
-): Promise<ResolveResult> {
-    const manifest = loadManifest(artistsPath, queriesPath);
-    const totalEntries = manifest.artists.length + manifest.queries.length;
-    currentRemove.resolvedTotal = totalEntries;
-
-    const wantedIds = new Set<number>();
-    const errors: string[] = [];
-
-    for (const entry of manifest.artists) {
-        const result = await resolveArtistEntry(entry.namespace, entry.value, entry.language);
-        for (const id of result.ids) wantedIds.add(id);
-        errors.push(...result.errors);
-        currentRemove.resolvedCount++;
-    }
-
-    for (const entry of manifest.queries) {
-        const result = await resolveQuery(entry.raw);
-        for (const id of result.ids) wantedIds.add(id);
-        errors.push(...result.errors);
-        currentRemove.resolvedCount++;
-    }
-
-    return { wantedIds, errors };
-}
-
 export async function runRemove(
     file: 'artists' | 'queries',
     line: string,
+    filtersPath: string,
     artistsPath: string,
     queriesPath: string,
 ): Promise<RemoveStatus> {
@@ -212,10 +156,12 @@ export async function runRemove(
     try {
         log(`start ${line} from ${file}.txt`);
 
-        const manifestBefore = loadManifest(artistsPath, queriesPath);
-        const removedIds = await resolveRemovedIds(file, line, manifestBefore);
-        currentRemove.removedIdCount = removedIds.size;
+        // Resolve the removed entry's filtered IDs (same policy as sync)
+        const manifestBefore = loadManifest(filtersPath, artistsPath, queriesPath);
+        const removed = await resolveEntryWithFilters(manifestBefore, file, line);
+        currentRemove.removedIdCount = removed.ids.size;
 
+        // Remove line from file (save original for rollback)
         originalContent = removeLineFromFile(filePath, line);
         if (originalContent === null) {
             currentRemove.phase = 'error';
@@ -224,27 +170,38 @@ export async function runRemove(
             return currentRemove;
         }
 
+        // Resolve remaining manifest (with filters applied)
         currentRemove.phase = 'resolving-remaining';
-        const { wantedIds, errors: resolveErrors } = await resolveRemainingManifest(artistsPath, queriesPath);
-        currentRemove.wantedCount = wantedIds.size;
+        const remaining = await resolveManifest(filtersPath, artistsPath, queriesPath, {
+            onArtistResolved: (resolved, total) => {
+                currentRemove.resolvedTotal = total;
+                currentRemove.resolvedCount = resolved;
+            },
+            onQueryResolved: (_resolved, _total, _queryIds, _totalIds) => {
+                currentRemove.resolvedCount++;
+            },
+        });
+        currentRemove.wantedCount = remaining.wantedIds.size;
+        currentRemove.resolvedTotal = remaining.artistCount + remaining.queryCount;
 
-        if (resolveErrors.length > 0) {
+        if (remaining.errors.length > 0) {
             restoreFile(filePath, originalContent);
             originalContent = null;
             currentRemove.phase = 'error';
-            currentRemove.error = `${resolveErrors.length} resolution failures, aborting`;
-            for (const e of resolveErrors) logError(e);
+            currentRemove.error = `${remaining.errors.length} resolution failures, aborting`;
+            for (const e of remaining.errors) logError(e);
             logError('incomplete wanted set, rolled back file change');
             return currentRemove;
         }
 
+        // Compute orphans: (removed IDs) ∩ (local) - (still wanted)
         currentRemove.phase = 'diffing';
         const localIds = getLocalIds();
         currentRemove.localCount = localIds.size;
 
         const orphans: number[] = [];
-        for (const id of removedIds) {
-            if (localIds.has(id) && !wantedIds.has(id)) {
+        for (const id of removed.ids) {
+            if (localIds.has(id) && !remaining.wantedIds.has(id)) {
                 orphans.push(id);
             }
         }

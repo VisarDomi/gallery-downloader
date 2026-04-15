@@ -72,11 +72,17 @@ type TagEntry struct {
 
 func main() {
 	if len(os.Args) < 3 {
-		fmt.Fprintf(os.Stderr, "Usage: scanner <media_root> <db_path>\n")
+		fmt.Fprintf(os.Stderr, "Usage: scanner <media_root> <db_path> [gallery_id]\n")
 		os.Exit(1)
 	}
 	root := os.Args[1]
 	dbPath := os.Args[2]
+
+	// Single-gallery mode: index one gallery and exit
+	if len(os.Args) >= 4 {
+		indexSingleGallery(root, dbPath, os.Args[3])
+		return
+	}
 
 	// Step 1: Walk and collect all gallery dirs
 	galleryDirs := walkAndCollect(root)
@@ -218,6 +224,75 @@ func main() {
 	total := unchanged + newCount + updatedCount
 	fmt.Printf("Scan complete: %d new, %d updated, %d deleted, %d unchanged, %d total\n",
 		newCount, updatedCount, len(deletedIDs), unchanged, total)
+}
+
+// -- SINGLE GALLERY --
+
+func indexSingleGallery(root, dbPath, galleryID string) {
+	dirPath := filepath.Join(root, "gallery-dl", "hitomi", galleryID)
+
+	if isDownloading(dirPath) {
+		fmt.Fprintf(os.Stderr, "Gallery %s is still downloading\n", galleryID)
+		os.Exit(1)
+	}
+
+	pg := processGallery(root, dirPath)
+	if pg == nil {
+		fmt.Fprintf(os.Stderr, "Failed to process gallery %s\n", galleryID)
+		os.Exit(1)
+	}
+
+	infoStat, err := os.Stat(filepath.Join(dirPath, "info.json"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Cannot stat info.json for %s: %v\n", galleryID, err)
+		os.Exit(1)
+	}
+	mtime := infoStat.ModTime().Unix()
+
+	db, err := openDB(dbPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to open database: %v\n", err)
+		os.Exit(1)
+	}
+	defer db.Close()
+
+	if err := createSchema(db); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to create schema: %v\n", err)
+		os.Exit(1)
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to begin transaction: %v\n", err)
+		os.Exit(1)
+	}
+
+	id := pg.Info.GalleryID
+
+	tx.Exec(`INSERT OR REPLACE INTO galleries
+		(gallery_id, title, title_jpn, type, language, lang, date, count, category, subcategory, path, thumb_count, last_scanned)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		id, pg.Info.Title, pg.Info.TitleJPN, pg.Info.Type,
+		pg.Info.Language, pg.Info.Lang, pg.Info.Date, pg.Info.Count,
+		pg.Info.Category, pg.Info.Subcategory, pg.Path, pg.ThumbCount, mtime)
+
+	tx.Exec(`DELETE FROM tags WHERE gallery_id = ?`, id)
+	for _, t := range pg.Tags {
+		tx.Exec(`INSERT INTO tags (gallery_id, namespace, value) VALUES (?, ?, ?)`, id, t.Namespace, t.Value)
+	}
+
+	tx.Exec(`DELETE FROM files WHERE gallery_id = ?`, id)
+	for _, f := range pg.Files {
+		tx.Exec(`INSERT INTO files (gallery_id, sort_order, filename, width, height) VALUES (?, ?, ?, ?, ?)`,
+			id, f.SortOrder, f.Filename, f.Width, f.Height)
+	}
+
+	if err := tx.Commit(); err != nil {
+		fmt.Fprintf(os.Stderr, "Failed to commit: %v\n", err)
+		os.Exit(1)
+	}
+
+	fmt.Printf("Indexed %d: %s (%d files, %d thumbs)\n", id, pg.Info.Title, len(pg.Files), pg.ThumbCount)
 }
 
 // -- DB SETUP --

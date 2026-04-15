@@ -4,7 +4,7 @@ import https from 'https';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
-import { runScan } from './scanner.js';
+import { runScan, indexGallery } from './scanner.js';
 import { searchGalleries, getGalleryDetail, getGalleryListItems, getFacets, reopenDb, setArtistsFilePath, invalidateArtistsCache } from './db.js';
 
 const app = express();
@@ -100,6 +100,21 @@ app.post('/galleries', (req, res) => {
     }
 
     res.json(getGalleryListItems(ids));
+});
+
+app.post('/index/:id', async (req, res) => {
+    const id = req.params.id;
+    if (!/^\d+$/.test(id)) {
+        res.status(400).json({ error: 'Invalid gallery ID' });
+        return;
+    }
+    const ok = await indexGallery(id);
+    if (ok) {
+        reopenDb();
+        res.json({ status: 'indexed', gallery_id: Number(id) });
+    } else {
+        res.status(404).json({ error: `Failed to index gallery ${id}` });
+    }
 });
 
 app.post('/refresh', async (_req, res) => {

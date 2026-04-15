@@ -69,6 +69,8 @@ function deletePartialGallery(galleryId: string) {
     removeMarker(galleryId);
 }
 
+export type DownloadValidator = (galleryId: string) => { valid: boolean; reason?: string };
+
 export interface QueueStatus {
     running: boolean;
     stopped: boolean;
@@ -85,6 +87,16 @@ class QueueManager {
     private isInterrupted: boolean = false;
     private stopSignal: boolean = false;
     private pauseSignal: boolean = false;
+    private validator: DownloadValidator | null = null;
+    private onComplete: ((galleryId: string) => void) | null = null;
+
+    public setValidator(fn: DownloadValidator) {
+        this.validator = fn;
+    }
+
+    public setOnComplete(fn: (galleryId: string) => void) {
+        this.onComplete = fn;
+    }
 
     public getStatus(): QueueStatus {
         return {
@@ -156,11 +168,27 @@ class QueueManager {
         this.currentChild.on('close', (code) => {
             socketService.emitLog(`\n--- FINISHED (Code ${code}) ---\n`);
             const completedGalleryId = this.currentGalleryId;
-            // Only remove marker on clean completion — interrupted/cancelled
-            // downloads leave partial files, so keep them hidden from indexer
+
             if (!this.isInterrupted && !this.stopSignal) {
-                if (completedGalleryId) removeMarker(completedGalleryId);
+                let rejected = false;
+
+                // Post-download validation (only on clean exit)
+                if (code === 0 && completedGalleryId && this.validator) {
+                    const check = this.validator(completedGalleryId);
+                    if (!check.valid) {
+                        console.log(`[validate] rejected ${completedGalleryId}: ${check.reason}`);
+                        socketService.emitLog(`[REJECTED] ${completedGalleryId}: ${check.reason}\n`);
+                        deletePartialGallery(completedGalleryId);
+                        rejected = true;
+                    }
+                }
+
+                if (!rejected && completedGalleryId) {
+                    removeMarker(completedGalleryId);
+                    this.onComplete?.(completedGalleryId);
+                }
             }
+
             this.currentChild = null;
             this.currentGalleryId = null;
 
