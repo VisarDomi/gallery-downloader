@@ -15,4 +15,7 @@ export const CONFIG = {
     OCR_IMAGE_LIMIT: '20mb',
     OCR_PYTHON: path.join(os.homedir(), '.local', 'share', 'ocr', 'paddleocr-venv', 'bin', 'python'),
     OCR_RUNNER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'paddle_lookup.py'),
+    OCR_VIEWPORT_RUNNER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'viewport_lookup.py'),
+    OCR_WORKER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'ocr_worker.py'),
+    OCR_WARM_IDLE_MS: 60 * 60 * 1000,
 };

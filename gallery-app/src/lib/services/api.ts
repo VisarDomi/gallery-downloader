@@ -1,5 +1,6 @@
 import { API } from '../config.js';
 import type { Gallery, GalleryListItem, SearchResponse } from '../types.js';
+import type { OcrViewportRequest } from './captureViewport.js';
 
 export async function search(query: string = ''): Promise<SearchResponse> {
     const res = await fetch(API.SEARCH(query));
@@ -108,7 +109,7 @@ export async function deleteGalleries(ids: number[]): Promise<{
     return res.json();
 }
 
-export async function ocrLookup(image: Blob): Promise<{
+export async function ocrLookup(viewport: OcrViewportRequest): Promise<{
     text: string;
     lines: string[];
     warnings: string[];
@@ -116,8 +117,8 @@ export async function ocrLookup(image: Blob): Promise<{
 }> {
     const res = await fetch(API.OCR_LOOKUP(), {
         method: 'POST',
-        headers: { 'Content-Type': 'image/png' },
-        body: image,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(viewport),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));

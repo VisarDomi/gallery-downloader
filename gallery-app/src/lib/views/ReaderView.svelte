@@ -6,7 +6,7 @@
     import { swipeBack } from '$lib/actions/swipeBack.js';
     import { swipeLookup } from '$lib/actions/swipeLookup.js';
     import Reader from '$lib/components/Reader.svelte';
-    import { captureReaderViewport } from '$lib/services/captureViewport.js';
+    import { buildReaderViewportRequest } from '$lib/services/captureViewport.js';
     import { ocrLookup } from '$lib/services/api.js';
     import { openShirabeLookup } from '$lib/services/shirabe.js';
 
@@ -15,6 +15,7 @@
     let lookupInFlight = $state(false);
     let ocrButtonVisible = $state(false);
     let ocrButtonSuppressed = $state(false);
+    let lookupPhase = $state<'idle' | 'capturing' | 'ocr' | 'opening' | 'failed'>('idle');
     let buttonViewportRect = $state({
         left: 0,
         top: 0,
@@ -22,29 +23,17 @@
         height: 0,
         scale: 1,
     });
-
-    type LookupPhase = 'capturing' | 'ocr' | 'opening' | 'failed';
     const VIEWPORT_SETTLE_MS = 220;
     const OCR_BUTTON_MARGIN_PX = 16;
-
-    function phaseMessage(phase: LookupPhase) {
-        switch (phase) {
-            case 'capturing':
-                return 'OCR: capturing viewport';
-            case 'ocr':
-                return 'OCR: running PaddleOCR';
-            case 'opening':
-                return 'OCR: opening Shirabe';
-            case 'failed':
-                return 'OCR lookup failed';
-        }
-    }
+    const OCR_BUTTON_SIZE_PX = 64;
+    const OCR_FAILURE_RESET_MS = 2000;
 
     function handleClose() {
         appState.reader.closeReader();
     }
 
     function toggleOcrButton() {
+        if (lookupInFlight) return;
         ocrButtonVisible = !ocrButtonVisible;
         if (ocrButtonVisible) {
             updateButtonViewportRect();
@@ -72,10 +61,11 @@
     }
 
     function buttonOverlayStyle() {
+        const inverseScale = buttonViewportRect.scale > 0 ? 1 / buttonViewportRect.scale : 1;
         return [
-            `left:${buttonViewportRect.left + buttonViewportRect.width - OCR_BUTTON_MARGIN_PX}px`,
-            `top:${buttonViewportRect.top + buttonViewportRect.height - OCR_BUTTON_MARGIN_PX}px`,
-            `--reader-ocr-scale:${buttonViewportRect.scale > 0 ? 1 / buttonViewportRect.scale : 1}`,
+            `left:${buttonViewportRect.left + buttonViewportRect.width - OCR_BUTTON_MARGIN_PX - OCR_BUTTON_SIZE_PX}px`,
+            `top:${buttonViewportRect.top + buttonViewportRect.height - OCR_BUTTON_MARGIN_PX - OCR_BUTTON_SIZE_PX}px`,
+            `--reader-ocr-scale:${inverseScale}`,
         ].join(';');
     }
 
@@ -114,30 +104,53 @@
 
     async function handleLookup(source: 'swipe' | 'button' = 'swipe') {
         if (lookupInFlight) return;
-        ocrButtonVisible = false;
+        ocrButtonVisible = true;
+        lookupPhase = 'capturing';
         appState.log.emit('reader-ocr-trigger', { source });
-        const toastId = appState.toast.showPersistent(phaseMessage('capturing'));
         const root = getReaderRoot();
         if (!root) {
-            appState.toast.update(toastId, 'Reader viewport unavailable');
-            appState.toast.dismissLater(toastId, 3000);
+            lookupPhase = 'failed';
+            setTimeout(() => {
+                if (!lookupInFlight) lookupPhase = 'idle';
+            }, OCR_FAILURE_RESET_MS);
             return;
         }
 
         lookupInFlight = true;
         try {
-            const image = await captureReaderViewport(root);
-            appState.toast.update(toastId, phaseMessage('ocr'));
-            const result = await ocrLookup(image);
-            appState.toast.update(toastId, phaseMessage('opening'));
+            const gallery = session?.gallery;
+            if (!gallery) {
+                throw new Error('Reader gallery is not ready');
+            }
+            const viewport = buildReaderViewportRequest(root, gallery);
+            lookupPhase = 'ocr';
+            const result = await ocrLookup(viewport);
+            lookupPhase = 'opening';
+            lookupPhase = 'idle';
             openShirabeLookup(result.text);
-            appState.toast.dismiss(toastId);
         } catch (error) {
-            appState.toast.update(toastId, phaseMessage('failed'));
-            appState.toast.dismissLater(toastId, 3000);
+            lookupPhase = 'failed';
+            setTimeout(() => {
+                if (!lookupInFlight) lookupPhase = 'idle';
+            }, OCR_FAILURE_RESET_MS);
             console.error('[OCR lookup]', error);
         } finally {
             lookupInFlight = false;
+        }
+    }
+
+    function buttonAriaLabel() {
+        switch (lookupPhase) {
+            case 'capturing':
+                return 'Capturing viewport';
+            case 'ocr':
+                return 'Running OCR';
+            case 'opening':
+                return 'Opening Shirabe';
+            case 'failed':
+                return 'OCR failed';
+            default:
+                return 'Run OCR lookup';
         }
     }
 </script>
@@ -152,28 +165,38 @@
         <div class="reader-ocr-overlay" style={buttonOverlayStyle()}>
             <button
                 class="reader-ocr-fab"
+                class:reader-ocr-fab--busy={lookupPhase !== 'idle' && lookupPhase !== 'failed'}
+                class:reader-ocr-fab--failed={lookupPhase === 'failed'}
                 type="button"
-                aria-label="Run OCR lookup"
+                aria-label={buttonAriaLabel()}
                 disabled={lookupInFlight}
                 onclick={(event) => {
                     event.stopPropagation();
                     void handleLookup('button');
                 }}
             >
-                <svg
-                    class="reader-ocr-icon"
-                    viewBox="0 0 24 24"
-                    aria-hidden="true"
-                >
-                    <path
-                        d="M4 8V5h3M20 8V5h-3M4 16v3h3M20 16v3h-3M8 9h8M8 12h8M8 15h5"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                        stroke-width="1.8"
-                    />
-                </svg>
+                {#if lookupPhase === 'capturing'}
+                    <svg class="reader-ocr-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M5 7h3M16 7h3M5 17h3M16 17h3M7 5v3M17 5v3M7 16v3M17 16v3" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+                    </svg>
+                {:else if lookupPhase === 'ocr'}
+                    <svg class="reader-ocr-icon reader-ocr-icon--spin" viewBox="0 0 24 24" aria-hidden="true">
+                        <circle cx="12" cy="12" r="8" fill="none" opacity="0.3" stroke="currentColor" stroke-width="2" />
+                        <path d="M12 4a8 8 0 0 1 8 8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-width="2.4" />
+                    </svg>
+                {:else if lookupPhase === 'opening'}
+                    <svg class="reader-ocr-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M7 17 17 7M9 7h8v8" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.9" />
+                    </svg>
+                {:else if lookupPhase === 'failed'}
+                    <svg class="reader-ocr-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M12 7v6M12 17h.01M10.3 3.9 2.9 16.5A1 1 0 0 0 3.8 18h16.4a1 1 0 0 0 .9-1.5L13.7 3.9a1 1 0 0 0-1.7 0Z" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+                    </svg>
+                {:else}
+                    <svg class="reader-ocr-icon" viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M4 8V5h3M20 8V5h-3M4 16v3h3M20 16v3h-3M8 9h8M8 12h8M8 15h5" fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="1.8" />
+                    </svg>
+                {/if}
             </button>
         </div>
     {/if}

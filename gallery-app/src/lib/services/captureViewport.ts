@@ -1,4 +1,34 @@
-function intersect(a: DOMRect, b: DOMRect) {
+import type { Gallery } from '$lib/types.js';
+
+export interface OcrViewportImage {
+    pageIndex: number;
+    mediaPath: string;
+    left: number;
+    top: number;
+    width: number;
+    height: number;
+}
+
+export interface OcrViewportRequest {
+    viewport: {
+        width: number;
+        height: number;
+        scale: number;
+        devicePixelRatio: number;
+    };
+    images: OcrViewportImage[];
+}
+
+interface RectLike {
+    left: number;
+    top: number;
+    right: number;
+    bottom: number;
+    width: number;
+    height: number;
+}
+
+function intersect(a: RectLike, b: RectLike): RectLike | null {
     const left = Math.max(a.left, b.left);
     const top = Math.max(a.top, b.top);
     const right = Math.min(a.right, b.right);
@@ -7,46 +37,73 @@ function intersect(a: DOMRect, b: DOMRect) {
     return { left, top, right, bottom, width: right - left, height: bottom - top };
 }
 
-export async function captureReaderViewport(root: HTMLElement): Promise<Blob> {
-    const width = root.clientWidth;
-    const height = root.clientHeight;
-    if (width <= 0 || height <= 0) {
+function viewportRect(): RectLike {
+    const visualViewport = window.visualViewport;
+    if (visualViewport) {
+        return {
+            left: 0,
+            top: 0,
+            right: visualViewport.width,
+            bottom: visualViewport.height,
+            width: visualViewport.width,
+            height: visualViewport.height,
+        };
+    }
+    return {
+        left: 0,
+        top: 0,
+        right: window.innerWidth,
+        bottom: window.innerHeight,
+        width: window.innerWidth,
+        height: window.innerHeight,
+    };
+}
+
+export function buildReaderViewportRequest(root: HTMLElement, gallery: Gallery): OcrViewportRequest {
+    const rootRect = root.getBoundingClientRect();
+    const captureRect = intersect(rootRect, viewportRect());
+    if (!captureRect || captureRect.width <= 0 || captureRect.height <= 0) {
         throw new Error('Reader viewport is not ready');
     }
 
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) throw new Error('Canvas context unavailable');
+    const visualViewport = window.visualViewport;
+    const scale = Math.max(1, visualViewport?.scale || 1);
+    const devicePixelRatio = Math.max(1, window.devicePixelRatio || 1);
+    const pages = Array.from(root.querySelectorAll<HTMLElement>('.reader-page'));
+    const images: OcrViewportImage[] = [];
 
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(0, 0, width, height);
+    for (const page of pages) {
+        const pageIndex = Number(page.dataset.pageIndex ?? '-1');
+        if (!Number.isInteger(pageIndex) || pageIndex < 0 || pageIndex >= gallery.fullFiles.length) continue;
 
-    const rootRect = root.getBoundingClientRect();
-    const images = Array.from(root.querySelectorAll<HTMLImageElement>('.reader-page img'));
+        const img = page.querySelector<HTMLImageElement>('img');
+        if (!img || !img.complete || !img.src) continue;
 
-    for (const img of images) {
-        if (!img.complete || !img.naturalWidth || !img.naturalHeight || !img.src) continue;
         const rect = img.getBoundingClientRect();
-        const visible = intersect(rootRect, rect);
+        const visible = intersect(captureRect, rect);
         if (!visible) continue;
 
-        const scaleX = img.naturalWidth / rect.width;
-        const scaleY = img.naturalHeight / rect.height;
-
-        const sx = (visible.left - rect.left) * scaleX;
-        const sy = (visible.top - rect.top) * scaleY;
-        const sw = visible.width * scaleX;
-        const sh = visible.height * scaleY;
-
-        const dx = visible.left - rootRect.left;
-        const dy = visible.top - rootRect.top;
-
-        ctx.drawImage(img, sx, sy, sw, sh, dx, dy, visible.width, visible.height);
+        images.push({
+            pageIndex,
+            mediaPath: `${gallery.path}/${gallery.fullFiles[pageIndex]}`,
+            left: rect.left - captureRect.left,
+            top: rect.top - captureRect.top,
+            width: rect.width,
+            height: rect.height,
+        });
     }
 
-    const blob = await new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, 'image/png'));
-    if (!blob) throw new Error('Failed to encode viewport image');
-    return blob;
+    if (images.length === 0) {
+        throw new Error('No visible reader images found');
+    }
+
+    return {
+        viewport: {
+            width: captureRect.width,
+            height: captureRect.height,
+            scale,
+            devicePixelRatio,
+        },
+        images,
+    };
 }

@@ -186,7 +186,7 @@
         {#each Array(pageCount) as _, i}
             {@const dim = g.dimensions[i]}
             {@const aspectRatio = dim && dim.width && dim.height ? `${dim.width}/${dim.height}` : '2/3'}
-            <div class="reader-page" use:registerPage={() => i} style="aspect-ratio:{aspectRatio}">
+            <div class="reader-page" data-page-index={i} use:registerPage={() => i} style="aspect-ratio:{aspectRatio}">
                 <img alt="Page {i + 1}" decoding="async" style="width:100%;display:block" />
             </div>
         {/each}

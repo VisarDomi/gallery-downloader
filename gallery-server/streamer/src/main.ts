@@ -60,7 +60,7 @@ app.get('/api/cert', (_req, res) => {
     }
 });
 
-app.post('/api/ocr/lookup', express.raw({ type: 'image/png', limit: CONFIG.OCR_IMAGE_LIMIT }), handleOcrLookupRequest);
+app.post('/api/ocr/lookup', handleOcrLookupRequest);
 app.post('/api/batch', handleBatchRequest);
 app.post('/api/delete', handleDeleteRequest);
 

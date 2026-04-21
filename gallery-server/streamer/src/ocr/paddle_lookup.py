@@ -11,6 +11,7 @@ from paddleocr import PaddleOCR
 
 JP_RE = re.compile(r"[\u3040-\u30ff\u3400-\u4dbf\u4e00-\u9fff]")
 NOISE_RE = re.compile(r"^[A-Za-z0-9]$")
+OCR_INSTANCE = None
 
 
 def polygon_to_bbox(box):
@@ -196,35 +197,46 @@ def reorder_vertical_japanese_blocks(blocks):
     return result, warnings
 
 
-def main():
-    if len(sys.argv) != 2:
-        raise SystemExit("usage: paddle_lookup.py <image-path>")
+def get_ocr():
+    global OCR_INSTANCE
+    if OCR_INSTANCE is None:
+        OCR_INSTANCE = PaddleOCR(
+            lang="japan",
+            text_detection_model_name="PP-OCRv5_server_det",
+            text_recognition_model_name="PP-OCRv5_server_rec",
+            use_doc_orientation_classify=False,
+            use_doc_unwarping=False,
+            use_textline_orientation=False,
+            device="gpu:0",
+        )
+    return OCR_INSTANCE
 
-    image_path = Path(sys.argv[1])
+
+def lookup_image(image_path: Path):
     if not image_path.exists():
-        raise SystemExit(f"missing image: {image_path}")
+        raise FileNotFoundError(f"missing image: {image_path}")
 
     started = time.perf_counter()
-    ocr = PaddleOCR(
-        lang="japan",
-        text_detection_model_name="PP-OCRv5_server_det",
-        text_recognition_model_name="PP-OCRv5_server_rec",
-        use_doc_orientation_classify=False,
-        use_doc_unwarping=False,
-        use_textline_orientation=False,
-        device="gpu:0",
-    )
+    ocr = get_ocr()
     raw_result = ocr.predict(str(image_path))
     raw_safe = to_json_safe(raw_result)
     blocks = normalize_result(raw_safe)
     blocks, warnings = reorder_vertical_japanese_blocks(blocks)
     lines = [block["text"] for block in blocks]
-    payload = {
+    return {
         "text": "\n".join(lines),
         "lines": lines,
         "warnings": warnings,
         "elapsedMs": round((time.perf_counter() - started) * 1000, 2),
     }
+
+
+def main():
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: paddle_lookup.py <image-path>")
+
+    image_path = Path(sys.argv[1])
+    payload = lookup_image(image_path)
     print(json.dumps(payload, ensure_ascii=False))
 
 

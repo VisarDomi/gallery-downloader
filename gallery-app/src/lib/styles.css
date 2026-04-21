@@ -516,14 +516,13 @@ html, body {
 
 .reader-ocr-overlay {
     position: fixed;
-    transform: translate(-100%, -100%);
     z-index: 2500;
     pointer-events: none;
 }
 
 .reader-ocr-fab {
-    width: 56px;
-    height: 56px;
+    width: 64px;
+    height: 64px;
     padding: 0;
     border: none;
     border-radius: 999px;
@@ -537,6 +536,7 @@ html, body {
     justify-content: center;
     transform: scale(var(--reader-ocr-scale, 1));
     transform-origin: bottom right;
+    transition: background-color 120ms ease, opacity 120ms ease;
 }
 
 .reader-ocr-fab:active {
@@ -547,9 +547,27 @@ html, body {
     opacity: 0.7;
 }
 
+.reader-ocr-fab--busy {
+    background: rgba(24, 24, 24, 0.98);
+}
+
+.reader-ocr-fab--failed {
+    background: rgba(104, 25, 25, 0.96);
+}
+
 .reader-ocr-icon {
     width: 24px;
     height: 24px;
+}
+
+.reader-ocr-icon--spin {
+    animation: reader-ocr-spin 0.9s linear infinite;
+}
+
+@keyframes reader-ocr-spin {
+    to {
+        transform: rotate(360deg);
+    }
 }
 
 /* ============ VIEW LAYERS ============ */
