@@ -514,6 +514,44 @@ html, body {
     pointer-events: none;
 }
 
+.reader-ocr-overlay {
+    position: fixed;
+    transform: translate(-100%, -100%);
+    z-index: 2500;
+    pointer-events: none;
+}
+
+.reader-ocr-fab {
+    width: 56px;
+    height: 56px;
+    padding: 0;
+    border: none;
+    border-radius: 999px;
+    background: rgba(20, 20, 20, 0.92);
+    color: #fff;
+    box-shadow: 0 10px 24px rgba(0, 0, 0, 0.35);
+    pointer-events: auto;
+    touch-action: manipulation;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transform: scale(var(--reader-ocr-scale, 1));
+    transform-origin: bottom right;
+}
+
+.reader-ocr-fab:active {
+    background: rgba(34, 34, 34, 0.96);
+}
+
+.reader-ocr-fab:disabled {
+    opacity: 0.7;
+}
+
+.reader-ocr-icon {
+    width: 24px;
+    height: 24px;
+}
+
 /* ============ VIEW LAYERS ============ */
 .view-layer {
     position: absolute;

@@ -34,6 +34,8 @@ export type LogEvent =
     | { event: 'reader-setup'; galleryId: number; pageCount: number; startPage: number; hasRoot: boolean }
     | { event: 'reader-idle-done'; galleryId: number; idleCallbacks: number; pagesScheduled: number }
     | { event: 'reader-drop'; galleryId: number; total: number; loaded: number; failed: number; idle: number; observer: number; eager: number; idleCallbacks: number; idleComplete: boolean; elapsedMs: number }
+    | { event: 'reader-ocr-button-toggle'; visible: boolean }
+    | { event: 'reader-ocr-trigger'; source: 'swipe' | 'button' }
     // Database
     | { event: 'db-error'; op: string; error: string }
     // Global errors
