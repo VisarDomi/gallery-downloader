@@ -107,3 +107,21 @@ export async function deleteGalleries(ids: number[]): Promise<{
     }
     return res.json();
 }
+
+export async function ocrLookup(image: Blob): Promise<{
+    text: string;
+    lines: string[];
+    warnings: string[];
+    elapsedMs: number;
+}> {
+    const res = await fetch(API.OCR_LOOKUP(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'image/png' },
+        body: image,
+    });
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+    }
+    return res.json();
+}

@@ -28,3 +28,18 @@ Example:
 - `gallery-server/artists.txt.example` -> `gallery-server/artists.txt`
 - `gallery-server/filters.txt.example` -> `gallery-server/filters.txt`
 - `gallery-server/queries.txt.example` -> `gallery-server/queries.txt`
+
+# shared ocr runtime
+
+The reader OCR flow uses a shared PaddleOCR Python runtime outside this repo.
+
+- Canonical location: `~/.local/share/ocr/paddleocr-venv`
+- The streamer OCR route references that path directly in `gallery-server/streamer/src/config.ts`
+
+This is shared with the `local-llm` benchmark harness so there is only one large Paddle/CUDA environment on disk.
+
+The intended ownership split is:
+
+- `gallery-reader`: gesture, viewport capture, OCR request orchestration, Shirabe handoff
+- shared venv: Paddle runtime and Python dependencies
+- `local-llm`: benchmark and OCR evaluation harness

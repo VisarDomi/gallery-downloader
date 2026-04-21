@@ -8,6 +8,7 @@ import { CONFIG } from './config.js';
 import { createHttpsServer } from './ssl.js';
 import { handleBatchRequest } from './batch.js';
 import { handleDeleteRequest } from './delete.js';
+import { handleOcrLookupRequest } from './ocr.js';
 
 const app = express();
 
@@ -59,6 +60,7 @@ app.get('/api/cert', (_req, res) => {
     }
 });
 
+app.post('/api/ocr/lookup', express.raw({ type: 'image/png', limit: CONFIG.OCR_IMAGE_LIMIT }), handleOcrLookupRequest);
 app.post('/api/batch', handleBatchRequest);
 app.post('/api/delete', handleDeleteRequest);
 

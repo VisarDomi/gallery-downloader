@@ -11,4 +11,7 @@ export const CONFIG = {
     SSL_DIR: path.join(os.homedir(), '.local/share/mkcert/pwa'),
     BATCH_LIMIT: '200mb',
     FRONTEND_BUILD_PATH: path.resolve(__dirname, '..', '..', '..', 'gallery-app', 'build'),
+    OCR_IMAGE_LIMIT: '20mb',
+    OCR_PYTHON: path.join(os.homedir(), '.local', 'share', 'ocr', 'paddleocr-venv', 'bin', 'python'),
+    OCR_RUNNER: path.resolve(__dirname, 'ocr', 'paddle_lookup.py'),
 };
