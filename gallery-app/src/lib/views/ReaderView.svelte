@@ -104,12 +104,19 @@
 
     async function handleLookup(source: 'swipe' | 'button' = 'swipe') {
         if (lookupInFlight) return;
+        const lookupStarted = performance.now();
         ocrButtonVisible = true;
         lookupPhase = 'capturing';
         appState.log.emit('reader-ocr-trigger', { source });
         const root = getReaderRoot();
         if (!root) {
             lookupPhase = 'failed';
+            appState.log.emit('reader-ocr-failed', {
+                source,
+                phase: 'capturing',
+                elapsedMs: Number((performance.now() - lookupStarted).toFixed(2)),
+                message: 'Reader root is missing',
+            });
             setTimeout(() => {
                 if (!lookupInFlight) lookupPhase = 'idle';
             }, OCR_FAILURE_RESET_MS);
@@ -123,13 +130,37 @@
                 throw new Error('Reader gallery is not ready');
             }
             const viewport = buildReaderViewportRequest(root, gallery);
+            appState.log.emit('reader-ocr-request-built', {
+                source,
+                elapsedMs: Number((performance.now() - lookupStarted).toFixed(2)),
+                imageCount: viewport.images.length,
+                viewportWidth: viewport.viewport.width,
+                viewportHeight: viewport.viewport.height,
+                scale: viewport.viewport.scale,
+            });
             lookupPhase = 'ocr';
             const result = await ocrLookup(viewport);
+            appState.log.emit('reader-ocr-response', {
+                source,
+                elapsedMs: Number((performance.now() - lookupStarted).toFixed(2)),
+                textLength: result.text.length,
+                lineCount: result.lines.length,
+            });
             lookupPhase = 'opening';
+            appState.log.emit('reader-ocr-handoff', {
+                source,
+                elapsedMs: Number((performance.now() - lookupStarted).toFixed(2)),
+            });
             lookupPhase = 'idle';
             openShirabeLookup(result.text);
         } catch (error) {
             lookupPhase = 'failed';
+            appState.log.emit('reader-ocr-failed', {
+                source,
+                phase: lookupPhase,
+                elapsedMs: Number((performance.now() - lookupStarted).toFixed(2)),
+                message: String((error as Error)?.message ?? error),
+            });
             setTimeout(() => {
                 if (!lookupInFlight) lookupPhase = 'idle';
             }, OCR_FAILURE_RESET_MS);

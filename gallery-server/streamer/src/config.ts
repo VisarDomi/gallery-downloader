@@ -18,4 +18,5 @@ export const CONFIG = {
     OCR_VIEWPORT_RUNNER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'viewport_lookup.py'),
     OCR_WORKER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'ocr_worker.py'),
     OCR_WARM_IDLE_MS: 60 * 60 * 1000,
+    OCR_DEBUG_ARTIFACTS: process.env.GALLERY_OCR_DEBUG_ARTIFACTS === '1',
 };

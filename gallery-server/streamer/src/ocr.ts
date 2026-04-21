@@ -11,6 +11,7 @@ interface OcrLookupResult {
     lines: string[];
     warnings: string[];
     elapsedMs: number;
+    profile?: Record<string, unknown>;
 }
 
 interface OcrViewportImageRequest {
@@ -35,7 +36,7 @@ interface OcrViewportRequest {
 interface OcrWorkerCommand {
     mediaRoot: string;
     requestPath: string;
-    imagePath: string;
+    imagePath?: string;
 }
 
 interface OcrWorkerMessage {
@@ -190,30 +191,53 @@ class OcrWorker {
 const ocrWorker = new OcrWorker();
 
 export async function handleOcrLookupRequest(req: Request, res: Response) {
+    const requestStarted = performance.now();
     if (!isViewportRequest(req.body)) {
         return res.status(400).json({ error: 'Invalid OCR viewport payload' });
     }
 
-    const { debugDir, requestPath, imagePath, resultPath, textPath } = buildDebugPaths();
+    const debugPaths = CONFIG.OCR_DEBUG_ARTIFACTS ? buildDebugPaths() : null;
+    const requestPath = debugPaths?.requestPath ?? path.join(os.tmpdir(), `gallery-ocr-request-${process.pid}-${Date.now()}.json`);
 
     try {
-        await fs.mkdir(debugDir, { recursive: true });
+        const saveStarted = performance.now();
+        if (debugPaths) {
+            await fs.mkdir(debugPaths.debugDir, { recursive: true });
+        }
         await fs.writeFile(requestPath, JSON.stringify(req.body, null, 2), 'utf8');
-        console.log(`[OCR] saved debug request ${requestPath}`);
+        const requestSaveMs = Number((performance.now() - saveStarted).toFixed(2));
+        if (debugPaths) {
+            console.log(`[OCR] saved debug request ${requestPath}`);
+        }
 
+        const workerStarted = performance.now();
         const result = await ocrWorker.run({
             mediaRoot: CONFIG.MEDIA_ROOT,
             requestPath,
-            imagePath,
+            imagePath: debugPaths?.imagePath,
         });
+        const workerRoundtripMs = Number((performance.now() - workerStarted).toFixed(2));
 
-        console.log(`[OCR] saved debug image ${imagePath}`);
-        await fs.writeFile(resultPath, JSON.stringify(result, null, 2), 'utf8');
-        await fs.writeFile(textPath, result.text, 'utf8');
-        console.log(`[OCR] saved debug result ${resultPath}`);
+        if (debugPaths) {
+            console.log(`[OCR] saved debug image ${debugPaths.imagePath}`);
+            await fs.writeFile(debugPaths.resultPath, JSON.stringify(result, null, 2), 'utf8');
+            await fs.writeFile(debugPaths.textPath, result.text, 'utf8');
+            console.log(`[OCR] saved debug result ${debugPaths.resultPath}`);
+        }
+        const totalRequestMs = Number((performance.now() - requestStarted).toFixed(2));
+        console.log('[OCR] timing', JSON.stringify({
+            requestSaveMs,
+            workerRoundtripMs,
+            totalRequestMs,
+            profile: result.profile ?? null,
+        }));
         return res.json(result);
     } catch (error) {
         console.error('[OCR] lookup failed', error);
         return res.status(500).json({ error: String((error as Error)?.message ?? error) });
+    } finally {
+        if (!debugPaths) {
+            fs.unlink(requestPath).catch(() => undefined);
+        }
     }
 }

@@ -74,27 +74,13 @@ def is_noise_block(block):
     return False
 
 
-def to_json_safe(value):
-    if isinstance(value, dict):
-        return {str(k): to_json_safe(v) for k, v in value.items()}
-    if isinstance(value, (list, tuple)):
-        return [to_json_safe(v) for v in value]
-    if isinstance(value, (str, int, float, bool)) or value is None:
-        return value
-    if hasattr(value, "tolist"):
-        return to_json_safe(value.tolist())
-    if isinstance(value, Path):
-        return str(value)
-    return repr(value)
-
-
 def normalize_result(raw_result):
     blocks = []
     if not isinstance(raw_result, list):
         return blocks
 
     for item in raw_result:
-        if not isinstance(item, dict):
+        if not hasattr(item, "get"):
             continue
         rec_texts = item.get("rec_texts")
         rec_scores = item.get("rec_scores")
@@ -212,22 +198,39 @@ def get_ocr():
     return OCR_INSTANCE
 
 
-def lookup_image(image_path: Path):
-    if not image_path.exists():
-        raise FileNotFoundError(f"missing image: {image_path}")
-
+def lookup_image(image_input):
+    if isinstance(image_input, Path):
+        if not image_input.exists():
+            raise FileNotFoundError(f"missing image: {image_input}")
+        predict_input = str(image_input)
+    else:
+        predict_input = image_input
     started = time.perf_counter()
     ocr = get_ocr()
-    raw_result = ocr.predict(str(image_path))
-    raw_safe = to_json_safe(raw_result)
-    blocks = normalize_result(raw_safe)
+    predict_started = time.perf_counter()
+    raw_result = ocr.predict(predict_input)
+    predict_ms = round((time.perf_counter() - predict_started) * 1000, 2)
+
+    normalize_started = time.perf_counter()
+    blocks = normalize_result(raw_result)
+    normalize_result_ms = round((time.perf_counter() - normalize_started) * 1000, 2)
+
+    reorder_started = time.perf_counter()
     blocks, warnings = reorder_vertical_japanese_blocks(blocks)
+    reorder_ms = round((time.perf_counter() - reorder_started) * 1000, 2)
     lines = [block["text"] for block in blocks]
     return {
         "text": "\n".join(lines),
         "lines": lines,
         "warnings": warnings,
         "elapsedMs": round((time.perf_counter() - started) * 1000, 2),
+        "profile": {
+            "predict_ms": predict_ms,
+            "normalize_result_ms": normalize_result_ms,
+            "reorder_ms": reorder_ms,
+            "raw_result_items": len(raw_result) if isinstance(raw_result, list) else None,
+            "normalized_blocks": len(blocks),
+        },
     }
 
 
