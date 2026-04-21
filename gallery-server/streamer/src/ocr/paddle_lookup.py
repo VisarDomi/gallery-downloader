@@ -73,6 +73,20 @@ def is_noise_block(block):
     return False
 
 
+def to_json_safe(value):
+    if isinstance(value, dict):
+        return {str(k): to_json_safe(v) for k, v in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [to_json_safe(v) for v in value]
+    if isinstance(value, (str, int, float, bool)) or value is None:
+        return value
+    if hasattr(value, "tolist"):
+        return to_json_safe(value.tolist())
+    if isinstance(value, Path):
+        return str(value)
+    return repr(value)
+
+
 def normalize_result(raw_result):
     blocks = []
     if not isinstance(raw_result, list):
@@ -111,7 +125,13 @@ def normalize_result(raw_result):
 
 
 def sort_horizontal_blocks(blocks):
-    return sorted(blocks, key=lambda block: (block.get("bbox", {}).get("y", math.inf), block.get("bbox", {}).get("x", math.inf)))
+    return sorted(
+        blocks,
+        key=lambda block: (
+            (block.get("bbox") or {}).get("y", math.inf),
+            (block.get("bbox") or {}).get("x", math.inf),
+        ),
+    )
 
 
 def vertically_related(a, b):
@@ -186,6 +206,7 @@ def main():
 
     started = time.perf_counter()
     ocr = PaddleOCR(
+        lang="japan",
         text_detection_model_name="PP-OCRv5_server_det",
         text_recognition_model_name="PP-OCRv5_server_rec",
         use_doc_orientation_classify=False,
@@ -194,7 +215,8 @@ def main():
         device="gpu:0",
     )
     raw_result = ocr.predict(str(image_path))
-    blocks = normalize_result(raw_result)
+    raw_safe = to_json_safe(raw_result)
+    blocks = normalize_result(raw_safe)
     blocks, warnings = reorder_vertical_japanese_blocks(blocks)
     lines = [block["text"] for block in blocks]
     payload = {
