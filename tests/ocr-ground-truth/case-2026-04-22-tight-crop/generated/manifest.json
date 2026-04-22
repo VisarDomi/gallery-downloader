@@ -1,0 +1,109 @@
+{
+  "case": "case-2026-04-22-tight-crop",
+  "transcriptPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/transcript.txt",
+  "variantCount": 17,
+  "variants": [
+    {
+      "id": "golden",
+      "family": "baseline",
+      "description": "Exact frontend request.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/golden.request.json"
+    },
+    {
+      "id": "pan-left",
+      "family": "navigation",
+      "description": "Pan viewport left by 8% of width.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-left.request.json"
+    },
+    {
+      "id": "pan-right",
+      "family": "navigation",
+      "description": "Pan viewport right by 8% of width.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-right.request.json"
+    },
+    {
+      "id": "pan-up",
+      "family": "navigation",
+      "description": "Pan viewport up by 8% of height.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-up.request.json"
+    },
+    {
+      "id": "pan-down",
+      "family": "navigation",
+      "description": "Pan viewport down by 8% of height.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-down.request.json"
+    },
+    {
+      "id": "pan-up-left",
+      "family": "navigation",
+      "description": "Diagonal pan up-left.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-up-left.request.json"
+    },
+    {
+      "id": "pan-up-right",
+      "family": "navigation",
+      "description": "Diagonal pan up-right.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-up-right.request.json"
+    },
+    {
+      "id": "pan-down-left",
+      "family": "navigation",
+      "description": "Diagonal pan down-left.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-down-left.request.json"
+    },
+    {
+      "id": "pan-down-right",
+      "family": "navigation",
+      "description": "Diagonal pan down-right.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/pan-down-right.request.json"
+    },
+    {
+      "id": "zoom-in-sm",
+      "family": "zoom",
+      "description": "Zoom in by 8%.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/zoom-in-sm.request.json"
+    },
+    {
+      "id": "zoom-out-sm",
+      "family": "zoom",
+      "description": "Zoom out by 8%.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/zoom-out-sm.request.json"
+    },
+    {
+      "id": "zoom-in-lg",
+      "family": "zoom",
+      "description": "Zoom in by 15%.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/zoom-in-lg.request.json"
+    },
+    {
+      "id": "zoom-out-lg",
+      "family": "zoom",
+      "description": "Zoom out by 15%.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/zoom-out-lg.request.json"
+    },
+    {
+      "id": "render-source-native",
+      "family": "render-policy",
+      "description": "Render at estimated source-native crop resolution.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/render-source-native.request.json"
+    },
+    {
+      "id": "render-source-capped",
+      "family": "render-policy",
+      "description": "Render slightly above source-native crop resolution.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/render-source-capped.request.json"
+    },
+    {
+      "id": "render-downscaled",
+      "family": "render-policy",
+      "description": "Render below source-native crop resolution.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/render-downscaled.request.json"
+    },
+    {
+      "id": "render-frontend-linked",
+      "family": "render-policy",
+      "description": "Render at the original frontend-linked scale with DPR folded into scale=1 form.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-22-tight-crop/generated/render-frontend-linked.request.json"
+    }
+  ]
+}

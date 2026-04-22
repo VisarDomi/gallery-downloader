@@ -15,6 +15,7 @@ interface OcrLookupResult {
     elapsedMs: number;
     blocks?: unknown[];
     discardedBlocks?: unknown[];
+    salvagedBlocks?: unknown[];
     profile?: Record<string, unknown>;
 }
 

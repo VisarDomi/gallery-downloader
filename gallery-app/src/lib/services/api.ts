@@ -12,6 +12,7 @@ export interface OcrLookupRun {
     elapsedMs: number;
     blocks?: unknown[];
     discardedBlocks?: unknown[];
+    salvagedBlocks?: unknown[];
     profile?: Record<string, unknown>;
     artifacts?: {
         requestPath?: string;
@@ -29,6 +30,7 @@ export interface OcrLookupResponse {
     elapsedMs: number;
     blocks?: unknown[];
     discardedBlocks?: unknown[];
+    salvagedBlocks?: unknown[];
     profile?: Record<string, unknown>;
     availableBackends: OcrBackendId[];
     runs: OcrLookupRun[];
