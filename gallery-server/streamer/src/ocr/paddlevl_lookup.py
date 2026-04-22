@@ -304,9 +304,9 @@ def evaluate_baseline(metrics: dict, geometry: dict):
         reasons.append("noise-heavy")
 
     weak = False
-    if sentence_poor and dialogue_like_geometry:
+    if sentence_poor:
         weak = True
-    elif noise_heavy and metrics["japanese_chars"] < 14 and dialogue_like_geometry:
+    elif noise_heavy and metrics["japanese_chars"] < 14:
         weak = True
 
     strong = sentence_rich or not weak
