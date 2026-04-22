@@ -74,6 +74,12 @@ def set_effective_scale(request, new_effective_scale):
     return variant
 
 
+def set_render_policy(request, render_policy):
+    variant = clone_request(request)
+    variant["ocrRenderPolicy"] = render_policy
+    return variant
+
+
 def clamp_scale(value):
     return max(0.75, min(12.0, value))
 
@@ -116,11 +122,7 @@ def render_viewport_image(media_root: Path, payload: dict):
         "width": float(viewport["width"]),
         "height": float(viewport["height"]),
     }
-    output_scale = max(1.0, float(viewport["devicePixelRatio"])) * max(1.0, float(viewport["scale"]))
-    output_width = max(1, round(viewport_rect["width"] * output_scale))
-    output_height = max(1, round(viewport_rect["height"] * output_scale))
-    canvas = Image.new("RGB", (output_width, output_height), "white")
-
+    visible_entries = []
     for image_entry in sorted(images, key=lambda item: (item.get("top", 0), item.get("pageIndex", 0))):
         image_rect = {
             "left": float(image_entry["left"]),
@@ -133,8 +135,47 @@ def render_viewport_image(media_root: Path, payload: dict):
         visible = intersect(viewport_rect, image_rect)
         if not visible:
             continue
-
         media_path = resolve_media_path(media_root, image_entry["mediaPath"])
+        with Image.open(media_path) as opened:
+            source = ImageOps.exif_transpose(opened)
+            src_width, src_height = source.size
+        visible_entries.append(
+            {
+                "entry": image_entry,
+                "image_rect": image_rect,
+                "visible": visible,
+                "media_path": media_path,
+                "src_width": src_width,
+                "src_height": src_height,
+            }
+        )
+
+    source_native_scale = max(
+        max(
+            entry["src_width"] / max(1.0, entry["image_rect"]["width"]),
+            entry["src_height"] / max(1.0, entry["image_rect"]["height"]),
+        )
+        for entry in visible_entries
+    ) if visible_entries else 1.0
+    frontend_linked_scale = max(1.0, float(viewport["devicePixelRatio"])) * max(1.0, float(viewport["scale"]))
+    render_policy = payload.get("ocrRenderPolicy") or "source-native"
+    if render_policy == "frontend-linked":
+        output_scale = frontend_linked_scale
+    elif render_policy == "source-capped":
+        output_scale = source_native_scale * 1.15
+    elif render_policy == "source-downscaled":
+        output_scale = source_native_scale * 0.75
+    else:
+        output_scale = source_native_scale
+    output_scale = max(1.0, output_scale)
+    output_width = max(1, round(viewport_rect["width"] * output_scale))
+    output_height = max(1, round(viewport_rect["height"] * output_scale))
+    canvas = Image.new("RGB", (output_width, output_height), "white")
+
+    for visible_entry in visible_entries:
+        image_rect = visible_entry["image_rect"]
+        visible = visible_entry["visible"]
+        media_path = visible_entry["media_path"]
         with Image.open(media_path) as opened:
             source = ImageOps.exif_transpose(opened).convert("RGB")
             src_width, src_height = source.size
@@ -167,6 +208,11 @@ def render_viewport_image(media_root: Path, payload: dict):
         "output_width": output_width,
         "output_height": output_height,
         "image_count": len(images),
+        "visible_image_count": len(visible_entries),
+        "render_policy": render_policy,
+        "source_native_scale": round(source_native_scale, 4),
+        "frontend_linked_scale": round(frontend_linked_scale, 4),
+        "output_scale": round(output_scale, 4),
     }
 
 
@@ -174,9 +220,6 @@ def build_variants(request, media_root: Path):
     viewport = request["viewport"]
     pan_x = round(float(viewport["width"]) * 0.08, 3)
     pan_y = round(float(viewport["height"]) * 0.08, 3)
-    current_scale = effective_scale(request)
-    native_scale = source_native_scale(request, media_root)
-
     return [
         {
             "id": "golden",
@@ -260,25 +303,25 @@ def build_variants(request, media_root: Path):
             "id": "render-source-native",
             "family": "render-policy",
             "description": "Render at estimated source-native crop resolution.",
-            "request": set_effective_scale(request, clamp_scale(native_scale)),
+            "request": set_render_policy(request, "source-native"),
         },
         {
             "id": "render-source-capped",
             "family": "render-policy",
             "description": "Render slightly above source-native crop resolution.",
-            "request": set_effective_scale(request, clamp_scale(native_scale * 1.15)),
+            "request": set_render_policy(request, "source-capped"),
         },
         {
             "id": "render-downscaled",
             "family": "render-policy",
             "description": "Render below source-native crop resolution.",
-            "request": set_effective_scale(request, clamp_scale(native_scale * 0.75)),
+            "request": set_render_policy(request, "source-downscaled"),
         },
         {
             "id": "render-frontend-linked",
             "family": "render-policy",
             "description": "Render at the original frontend-linked scale with DPR folded into scale=1 form.",
-            "request": set_effective_scale(request, clamp_scale(current_scale)),
+            "request": set_render_policy(request, "frontend-linked"),
         },
     ]
 

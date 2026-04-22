@@ -2,8 +2,8 @@
   "viewport": {
     "width": 143,
     "height": 310,
-    "scale": 8.969929,
-    "devicePixelRatio": 1
+    "scale": 2.989976167678833,
+    "devicePixelRatio": 3
   },
   "images": [
     {
@@ -22,5 +22,6 @@
       "width": 428,
       "height": 321
     }
-  ]
+  ],
+  "ocrRenderPolicy": "frontend-linked"
 }
