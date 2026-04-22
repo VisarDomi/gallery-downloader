@@ -80,6 +80,12 @@ def set_render_policy(request, render_policy):
     return variant
 
 
+def set_rotation(request, degrees):
+    variant = clone_request(request)
+    variant["ocrImageRotationDegrees"] = round(float(degrees), 3)
+    return variant
+
+
 def clamp_scale(value):
     return max(0.75, min(12.0, value))
 
@@ -322,6 +328,30 @@ def build_variants(request, media_root: Path):
             "family": "render-policy",
             "description": "Render at the original frontend-linked scale with DPR folded into scale=1 form.",
             "request": set_render_policy(request, "frontend-linked"),
+        },
+        {
+            "id": "rotate-left-sm",
+            "family": "rotation",
+            "description": "Rotate OCR image 10 degrees counter-clockwise.",
+            "request": set_rotation(request, 10),
+        },
+        {
+            "id": "rotate-right-sm",
+            "family": "rotation",
+            "description": "Rotate OCR image 10 degrees clockwise.",
+            "request": set_rotation(request, -10),
+        },
+        {
+            "id": "rotate-left-lg",
+            "family": "rotation",
+            "description": "Rotate OCR image 20 degrees counter-clockwise.",
+            "request": set_rotation(request, 20),
+        },
+        {
+            "id": "rotate-right-lg",
+            "family": "rotation",
+            "description": "Rotate OCR image 20 degrees clockwise.",
+            "request": set_rotation(request, -20),
         },
     ]
 

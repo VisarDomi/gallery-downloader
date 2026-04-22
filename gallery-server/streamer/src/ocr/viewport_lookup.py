@@ -10,9 +10,6 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageOps
 
-from paddle_lookup import lookup_image
-
-
 def clamp(value, low, high):
     return max(low, min(high, value))
 
@@ -64,10 +61,18 @@ def validate_payload(payload):
     render_policy = payload.get("ocrRenderPolicy")
     if render_policy is not None and render_policy not in {"source-native", "source-capped", "source-downscaled", "frontend-linked"}:
         raise ValueError("invalid ocrRenderPolicy")
+    rotation_degrees = payload.get("ocrImageRotationDegrees")
+    if rotation_degrees is not None:
+        if not isinstance(rotation_degrees, (int, float)) or not math.isfinite(float(rotation_degrees)):
+            raise ValueError("invalid ocrImageRotationDegrees")
 
 
 def get_render_policy(payload):
     return payload.get("ocrRenderPolicy") or "source-native"
+
+
+def get_rotation_degrees(payload):
+    return float(payload.get("ocrImageRotationDegrees") or 0.0)
 
 
 def compute_source_native_scale(visible_entries):
@@ -215,6 +220,10 @@ def render_viewport_image(media_root: Path, payload: dict, output_path: Path | N
         write_ms = round((time.perf_counter() - write_started) * 1000, 2)
     save_ms = round(encode_ms + write_ms, 2)
     render_total_ms = round((time.perf_counter() - render_started) * 1000, 2)
+    rotation_degrees = get_rotation_degrees(payload)
+    if abs(rotation_degrees) > 1e-6:
+        canvas = canvas.rotate(rotation_degrees, resample=Image.Resampling.BICUBIC, expand=False, fillcolor="white")
+
     image_bgr = np.array(canvas)[:, :, ::-1].copy()
     return image_bgr, {
         "render_total_ms": render_total_ms,
@@ -231,6 +240,7 @@ def render_viewport_image(media_root: Path, payload: dict, output_path: Path | N
         "output_height": output_height,
         "image_count": len(images),
         "visible_image_count": len(visible_entries),
+        "rotation_degrees": round(rotation_degrees, 4),
         "max_source_crop_width": round(max_source_crop_width, 2),
         "max_source_crop_height": round(max_source_crop_height, 2),
         **scale_info,
@@ -252,6 +262,8 @@ def main():
     request_read_ms = round((time.perf_counter() - request_read_started) * 1000, 2)
 
     image_bgr, render_profile = render_viewport_image(media_root, payload, output_path)
+    from paddle_lookup import lookup_image
+
     result = lookup_image(image_bgr)
     result["profile"] = {
         "request_read_ms": request_read_ms,

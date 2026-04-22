@@ -29,17 +29,41 @@ Example:
 - `gallery-server/filters.txt.example` -> `gallery-server/filters.txt`
 - `gallery-server/queries.txt.example` -> `gallery-server/queries.txt`
 
-# shared ocr runtime
+# ocr runtimes
 
-The reader OCR flow uses a shared PaddleOCR Python runtime outside this repo.
+The reader OCR flow now uses repo-owned runtimes and model files.
 
-- Canonical location: `~/.local/share/ocr/paddleocr-venv`
-- The streamer OCR route references that path directly in `gallery-server/streamer/src/config.ts`
+- `gallery-server/.venvs/paddleocr-venv`
+- `gallery-server/.venvs/mangaocr-venv`
+- `gallery-server/.models/paddleocr-vl-1.5`
 
-This is shared with the `local-llm` benchmark harness so there is only one large Paddle/CUDA environment on disk.
+The streamer OCR route references those paths in `gallery-server/streamer/src/config.ts`.
 
-The intended ownership split is:
+If another repo needs one of these runtimes, it should reference that interpreter explicitly rather than owning the environment itself.
 
-- `gallery-reader`: gesture, viewport capture, OCR request orchestration, Shirabe handoff
-- shared venv: Paddle runtime and Python dependencies
-- `local-llm`: benchmark and OCR evaluation harness
+Current default backend:
+
+- `paddle-vl`
+
+Current available backends:
+
+- `paddle-current`
+- `manga-ocr`
+- `paddle-vl`
+
+Setup expectations:
+
+1. Create the repo-owned Python envs under `gallery-server/.venvs/`.
+2. Install the backend-specific dependencies into those envs.
+3. Put the PaddleOCR-VL GGUF + mmproj files under `gallery-server/.models/paddleocr-vl-1.5/`.
+4. Make sure `llama-server` from your local `llama.cpp` build exists at:
+   - `~/Documents/work/ai/local-llm/engine/stable/llama.cpp/build/bin/llama-server`
+5. Restart the streamer through systemd:
+   - `npm run restart:streamer`
+
+Operational notes:
+
+- OCR debug artifacts are written to `/tmp/gallery-ocr-debug/` when `GALLERY_OCR_DEBUG_ARTIFACTS=1` is set for the streamer service.
+- OCR workers stay warm for up to 1 hour of idle time.
+- Restarting `gallery-streamer.service` clears warm OCR workers and frees OCR-related VRAM.
+- `manga-ocr` is currently kept only as an experimental backend. The production path is `paddle-vl`.

@@ -4,4 +4,6 @@ dist/
 repomix/
 indexer/src/bin
 gallery-dl/.venv/
+.venvs/
+.models/
 __pycache__/

@@ -2,7 +2,7 @@ import { API } from '../config.js';
 import type { Gallery, GalleryListItem, SearchResponse } from '../types.js';
 import type { OcrViewportRequest } from './captureViewport.js';
 
-export type OcrBackendId = 'paddle-current';
+export type OcrBackendId = 'paddle-current' | 'manga-ocr' | 'paddle-vl';
 
 export interface OcrLookupRun {
     backend: OcrBackendId;
@@ -159,19 +159,11 @@ export async function getOcrBackends(): Promise<{
 
 export async function ocrLookup(
     viewport: OcrViewportRequest,
-    options?: {
-        backend?: OcrBackendId;
-        compareBackends?: OcrBackendId[];
-    },
 ): Promise<OcrLookupResponse> {
     const res = await fetch(API.OCR_LOOKUP(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            ...viewport,
-            backend: options?.backend,
-            compareBackends: options?.compareBackends,
-        }),
+        body: JSON.stringify(viewport),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));

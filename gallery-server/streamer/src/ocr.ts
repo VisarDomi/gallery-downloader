@@ -6,7 +6,7 @@ import { createInterface } from 'readline';
 import type { Request, Response } from 'express';
 import { CONFIG } from './config.js';
 
-export type OcrBackendId = 'paddle-current';
+export type OcrBackendId = 'paddle-current' | 'manga-ocr' | 'paddle-vl';
 
 interface OcrLookupResult {
     text: string;
@@ -93,7 +93,7 @@ function buildDebugPathsForBackend(backend: OcrBackendId) {
     };
 }
 
-const AVAILABLE_OCR_BACKENDS: OcrBackendId[] = ['paddle-current'];
+const AVAILABLE_OCR_BACKENDS: OcrBackendId[] = ['paddle-current', 'manga-ocr', 'paddle-vl'];
 
 function isKnownBackend(value: unknown): value is OcrBackendId {
     return typeof value === 'string' && AVAILABLE_OCR_BACKENDS.includes(value as OcrBackendId);
@@ -105,7 +105,7 @@ function resolveRequestedBackends(request: OcrViewportRequest): OcrBackendId[] {
         ...(Array.isArray(request.compareBackends) ? request.compareBackends : []),
     ].filter(isKnownBackend);
     const deduped = Array.from(new Set(requested));
-    return deduped.length > 0 ? deduped : ['paddle-current'];
+    return deduped.length > 0 ? deduped : ['paddle-vl'];
 }
 
 function isFiniteNumber(value: unknown): value is number {
@@ -143,9 +143,15 @@ class OcrWorker {
     private queue: Promise<unknown> = Promise.resolve();
     private idleTimer: NodeJS.Timeout | null = null;
 
+    constructor(
+        private readonly pythonPath: string,
+        private readonly workerPath: string,
+        private readonly name: OcrBackendId,
+    ) {}
+
     private ensureProcess() {
         if (this.process && this.rl) return;
-        const child = spawn(CONFIG.OCR_PYTHON, [CONFIG.OCR_WORKER], {
+        const child = spawn(this.pythonPath, [this.workerPath], {
             stdio: ['pipe', 'pipe', 'pipe'],
         });
         const rl = createInterface({ input: child.stdout });
@@ -191,7 +197,7 @@ class OcrWorker {
 
         this.process = child;
         this.rl = rl;
-        console.log('[OCR] worker started');
+        console.log(`[OCR] ${this.name} worker started`);
     }
 
     private scheduleIdleStop() {
@@ -205,7 +211,7 @@ class OcrWorker {
             this.idleTimer = null;
         }
         if (this.process) {
-            console.log('[OCR] worker stopped after idle timeout');
+            console.log(`[OCR] ${this.name} worker stopped after idle timeout`);
             this.process.kill();
             this.process = null;
         }
@@ -243,7 +249,11 @@ class OcrWorker {
     }
 }
 
-const ocrWorker = new OcrWorker();
+const OCR_WORKERS: Record<OcrBackendId, OcrWorker> = {
+    'paddle-current': new OcrWorker(CONFIG.OCR_PYTHON, CONFIG.OCR_WORKER, 'paddle-current'),
+    'manga-ocr': new OcrWorker(CONFIG.OCR_MANGA_PYTHON, CONFIG.OCR_MANGA_WORKER, 'manga-ocr'),
+    'paddle-vl': new OcrWorker(CONFIG.OCR_PYTHON, CONFIG.OCR_PADDLE_VL_WORKER, 'paddle-vl'),
+};
 
 function buildRunArtifacts(debugPaths: ReturnType<typeof buildDebugPathsForBackend> | null) {
     if (!debugPaths) return undefined;
@@ -275,7 +285,7 @@ async function runBackendLookup(
         }
 
         const workerStarted = performance.now();
-        const result = await ocrWorker.run({
+        const result = await OCR_WORKERS[backend].run({
             mediaRoot: CONFIG.MEDIA_ROOT,
             requestPath,
             imagePath: debugPaths?.imagePath,
@@ -313,7 +323,7 @@ async function runBackendLookup(
 export function handleOcrBackendsRequest(_req: Request, res: Response) {
     return res.json({
         availableBackends: AVAILABLE_OCR_BACKENDS,
-        defaultBackend: 'paddle-current',
+        defaultBackend: 'paddle-vl',
     });
 }
 
@@ -323,6 +333,13 @@ export async function handleOcrLookupRequest(req: Request, res: Response) {
         return res.status(400).json({ error: 'Invalid OCR viewport payload' });
     }
     const requestedBackends = resolveRequestedBackends(req.body);
+    console.log('[OCR] backend selection', JSON.stringify({
+        requestedBackend: req.body.backend ?? null,
+        requestedCompareBackends: Array.isArray(req.body.compareBackends) ? req.body.compareBackends : [],
+        resolvedBackends: requestedBackends,
+        availableBackends: AVAILABLE_OCR_BACKENDS,
+        fallbackApplied: requestedBackends[0] !== req.body.backend,
+    }));
     const requestBody: OcrViewportRequest = {
         ...req.body,
         backend: requestedBackends[0],

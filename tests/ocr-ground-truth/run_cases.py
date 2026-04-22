@@ -52,6 +52,7 @@ def build_summary_entry(case_name: str, variant: dict, result: dict, expected_te
     actual_text = (result.get("text") or "").strip()
     actual_lines = result.get("lines") or []
     expected_lines = expected_text.splitlines()
+    profile = result.get("profile") or {}
     return {
         "case": case_name,
         "variant": variant["id"],
@@ -63,7 +64,10 @@ def build_summary_entry(case_name: str, variant: dict, result: dict, expected_te
         "warningCount": len(result.get("warnings") or []),
         "warnings": result.get("warnings") or [],
         "text": actual_text,
-        "profile": result.get("profile") or {},
+        "latencyMs": profile.get("worker_total_ms"),
+        "predictMs": profile.get("predict_ms"),
+        "renderMs": profile.get("render_total_ms"),
+        "profile": profile,
     }
 
 
@@ -74,8 +78,8 @@ def format_summary_markdown(case_name: str, backend: str, transcript_path: Path,
         f"- Backend: `{backend}`",
         f"- Transcript: `{transcript_path.relative_to(ROOT)}`",
         "",
-        "| Variant | Match | Expected Lines | Actual Lines | Warnings |",
-        "| --- | --- | ---: | ---: | ---: |",
+        "| Variant | Match | Expected Lines | Actual Lines | Total ms | Predict ms | Warnings |",
+        "| --- | --- | ---: | ---: | ---: | ---: | ---: |",
     ]
     for entry in entries:
         lines.append(
@@ -83,6 +87,8 @@ def format_summary_markdown(case_name: str, backend: str, transcript_path: Path,
             f"{'yes' if entry['exactMatch'] else 'no'} | "
             f"{entry['expectedLineCount']} | "
             f"{entry['actualLineCount']} | "
+            f"{format_metric(entry['latencyMs'])} | "
+            f"{format_metric(entry['predictMs'])} | "
             f"{entry['warningCount']} |"
         )
     lines.append("")
@@ -93,6 +99,9 @@ def format_summary_markdown(case_name: str, backend: str, transcript_path: Path,
                 "",
                 f"- Family: `{entry['family']}`",
                 f"- Match: `{'yes' if entry['exactMatch'] else 'no'}`",
+                f"- Total ms: `{format_metric(entry['latencyMs'])}`",
+                f"- Predict ms: `{format_metric(entry['predictMs'])}`",
+                f"- Render ms: `{format_metric(entry['renderMs'])}`",
                 f"- Warnings: `{', '.join(entry['warnings']) if entry['warnings'] else 'none'}`",
                 "",
                 "```text",
@@ -102,6 +111,12 @@ def format_summary_markdown(case_name: str, backend: str, transcript_path: Path,
             ]
         )
     return "\n".join(lines)
+
+
+def format_metric(value):
+    if value is None:
+        return "n/a"
+    return f"{float(value):.2f}"
 
 
 def main():

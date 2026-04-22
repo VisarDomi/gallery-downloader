@@ -7,20 +7,15 @@
     import { swipeLookup } from '$lib/actions/swipeLookup.js';
     import Reader from '$lib/components/Reader.svelte';
     import { buildReaderViewportRequest } from '$lib/services/captureViewport.js';
-    import { getOcrBackends, ocrLookup, type OcrBackendId } from '$lib/services/api.js';
+    import { ocrLookup } from '$lib/services/api.js';
     import { openShirabeLookup } from '$lib/services/shirabe.js';
 
     const session = $derived(appState.reader.session);
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
-    const OCR_BACKEND_STORAGE_KEY = 'gallery-reader.ocr-backend';
-    const OCR_COMPARE_STORAGE_KEY = 'gallery-reader.ocr-compare-backends';
     let lookupInFlight = $state(false);
     let ocrButtonVisible = $state(false);
     let ocrButtonSuppressed = $state(false);
     let lookupPhase = $state<'idle' | 'capturing' | 'ocr' | 'opening' | 'failed'>('idle');
-    let activeOcrBackend = $state<OcrBackendId>('paddle-current');
-    let compareOcrBackends = $state<OcrBackendId[]>([]);
-    let availableOcrBackends = $state<OcrBackendId[]>(['paddle-current']);
     let buttonViewportRect = $state({
         left: 0,
         top: 0,
@@ -35,35 +30,6 @@
 
     function handleClose() {
         appState.reader.closeReader();
-    }
-
-    function normalizeBackendList(items: string[]): OcrBackendId[] {
-        return Array.from(new Set(items.filter((item): item is OcrBackendId => item === 'paddle-current')));
-    }
-
-    function loadOcrBackendSelection() {
-        if (typeof window === 'undefined') return;
-        const params = new URLSearchParams(window.location.search);
-        const storageBackend = window.localStorage.getItem(OCR_BACKEND_STORAGE_KEY);
-        const storageCompare = window.localStorage.getItem(OCR_COMPARE_STORAGE_KEY);
-        const backend = params.get('ocrBackend') || storageBackend || 'paddle-current';
-        const compareRaw = params.get('ocrCompare') || storageCompare || '';
-        activeOcrBackend = backend === 'paddle-current' ? 'paddle-current' : 'paddle-current';
-        compareOcrBackends = normalizeBackendList(compareRaw.split(',').map((item) => item.trim()).filter(Boolean))
-            .filter((item) => item !== activeOcrBackend);
-    }
-
-    async function loadAvailableOcrBackends() {
-        try {
-            const result = await getOcrBackends();
-            availableOcrBackends = result.availableBackends;
-            if (!availableOcrBackends.includes(activeOcrBackend)) {
-                activeOcrBackend = result.defaultBackend;
-            }
-            compareOcrBackends = compareOcrBackends.filter((item) => availableOcrBackends.includes(item) && item !== activeOcrBackend);
-        } catch (error) {
-            console.error('[OCR backends]', error);
-        }
     }
 
     function toggleOcrButton() {
@@ -104,8 +70,10 @@
     }
 
     onMount(() => {
-        loadOcrBackendSelection();
-        void loadAvailableOcrBackends();
+        if (typeof window !== 'undefined') {
+            window.localStorage.removeItem('gallery-reader.ocr-backend');
+            window.localStorage.removeItem('gallery-reader.ocr-compare-backends');
+        }
         const viewport = window.visualViewport;
         let settleTimer: ReturnType<typeof setTimeout> | undefined;
 
@@ -143,11 +111,7 @@
         const lookupStarted = performance.now();
         ocrButtonVisible = true;
         lookupPhase = 'capturing';
-        appState.log.emit('reader-ocr-trigger', {
-            source,
-            backend: activeOcrBackend,
-            compareBackends: compareOcrBackends,
-        });
+        appState.log.emit('reader-ocr-trigger', { source });
         const root = getReaderRoot();
         if (!root) {
             lookupPhase = 'failed';
@@ -172,8 +136,6 @@
             const viewport = buildReaderViewportRequest(root, gallery);
             appState.log.emit('reader-ocr-request-built', {
                 source,
-                backend: activeOcrBackend,
-                compareBackends: compareOcrBackends,
                 elapsedMs: Number((performance.now() - lookupStarted).toFixed(2)),
                 imageCount: viewport.images.length,
                 viewportWidth: viewport.viewport.width,
@@ -181,10 +143,7 @@
                 scale: viewport.viewport.scale,
             });
             lookupPhase = 'ocr';
-            const result = await ocrLookup(viewport, {
-                backend: activeOcrBackend,
-                compareBackends: compareOcrBackends,
-            });
+            const result = await ocrLookup(viewport);
             appState.log.emit('reader-ocr-response', {
                 source,
                 backend: result.backend,

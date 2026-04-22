@@ -35,8 +35,8 @@ export type LogEvent =
     | { event: 'reader-idle-done'; galleryId: number; idleCallbacks: number; pagesScheduled: number }
     | { event: 'reader-drop'; galleryId: number; total: number; loaded: number; failed: number; idle: number; observer: number; eager: number; idleCallbacks: number; idleComplete: boolean; elapsedMs: number }
     | { event: 'reader-ocr-button-toggle'; visible: boolean }
-    | { event: 'reader-ocr-trigger'; source: 'swipe' | 'button'; backend: string; compareBackends: string[] }
-    | { event: 'reader-ocr-request-built'; source: 'swipe' | 'button'; backend: string; compareBackends: string[]; elapsedMs: number; imageCount: number; viewportWidth: number; viewportHeight: number; scale: number }
+    | { event: 'reader-ocr-trigger'; source: 'swipe' | 'button' }
+    | { event: 'reader-ocr-request-built'; source: 'swipe' | 'button'; elapsedMs: number; imageCount: number; viewportWidth: number; viewportHeight: number; scale: number }
     | { event: 'reader-ocr-response'; source: 'swipe' | 'button'; backend: string; runCount: number; elapsedMs: number; textLength: number; lineCount: number }
     | { event: 'reader-ocr-handoff'; source: 'swipe' | 'button'; elapsedMs: number }
     | { event: 'reader-ocr-failed'; source: 'swipe' | 'button'; phase: string; elapsedMs: number; message: string }
