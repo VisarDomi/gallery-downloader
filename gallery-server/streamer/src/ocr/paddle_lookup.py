@@ -14,7 +14,16 @@ NOISE_RE = re.compile(r"^[A-Za-z0-9]$")
 OCR_INSTANCE = None
 
 
+def normalize_box_points(box):
+    if hasattr(box, "tolist"):
+        box = box.tolist()
+    if isinstance(box, tuple):
+        box = list(box)
+    return box
+
+
 def polygon_to_bbox(box):
+    box = normalize_box_points(box)
     if not isinstance(box, list) or not box:
         return None
     pts = []
@@ -34,6 +43,22 @@ def polygon_to_bbox(box):
         "y": min(ys),
         "width": max(xs) - min(xs),
         "height": max(ys) - min(ys),
+    }
+
+
+def rect_to_bbox(box):
+    box = normalize_box_points(box)
+    if not isinstance(box, list) or len(box) < 4:
+        return None
+    try:
+        x1, y1, x2, y2 = [float(value) for value in box[:4]]
+    except (TypeError, ValueError):
+        return None
+    return {
+        "x": min(x1, x2),
+        "y": min(y1, y2),
+        "width": abs(x2 - x1),
+        "height": abs(y2 - y1),
     }
 
 
@@ -74,6 +99,25 @@ def is_noise_block(block):
     return False
 
 
+def normalize_word_boxes(words, word_boxes):
+    if hasattr(word_boxes, "tolist"):
+        word_boxes = word_boxes.tolist()
+    if not isinstance(words, list) or not isinstance(word_boxes, list):
+        return []
+
+    result = []
+    for index, word in enumerate(words):
+        box = word_boxes[index] if index < len(word_boxes) else None
+        bbox = rect_to_bbox(box)
+        result.append(
+            {
+                "text": str(word),
+                "bbox": bbox,
+            }
+        )
+    return result
+
+
 def normalize_result(raw_result):
     blocks = []
     if not isinstance(raw_result, list):
@@ -85,27 +129,34 @@ def normalize_result(raw_result):
         rec_texts = item.get("rec_texts")
         rec_scores = item.get("rec_scores")
         rec_polys = item.get("rec_polys")
+        rec_boxes = item.get("rec_boxes")
+        text_words = item.get("text_word")
+        text_word_boxes = item.get("text_word_boxes")
         if isinstance(rec_texts, list):
             for idx, text in enumerate(rec_texts):
                 text_str = str(text).strip()
-                if not text_str:
-                    continue
                 score = rec_scores[idx] if isinstance(rec_scores, list) and idx < len(rec_scores) else None
                 try:
                     score_val = float(score) if score is not None else None
                 except (TypeError, ValueError):
                     score_val = None
                 box = rec_polys[idx] if isinstance(rec_polys, list) and idx < len(rec_polys) else None
-                bbox = polygon_to_bbox(box)
+                rect_box = rec_boxes[idx] if rec_boxes is not None and idx < len(rec_boxes) else None
+                bbox = polygon_to_bbox(box) or rect_to_bbox(rect_box)
+                words = text_words[idx] if isinstance(text_words, list) and idx < len(text_words) else None
+                word_boxes = text_word_boxes[idx] if isinstance(text_word_boxes, list) and idx < len(text_word_boxes) else None
                 blocks.append(
                     {
                         "id": f"block-{len(blocks) + 1}",
                         "text": text_str,
                         "score": score_val,
-                        "box": box,
+                        "box": normalize_box_points(box),
+                        "rectBox": normalize_box_points(rect_box),
                         "bbox": bbox,
                         "direction": infer_direction(text_str, bbox),
                         "script": infer_script(text_str),
+                        "wordPieces": normalize_word_boxes(words, word_boxes),
+                        "sourceIndex": idx,
                     }
                 )
     return blocks
@@ -178,9 +229,15 @@ def reorder_vertical_japanese_blocks(blocks):
     original_order = [block["id"] for block in cleaned]
     if [block["id"] for block in result] != original_order:
         warnings.append("vertical_order_corrected")
+    for block in blocks:
+        if not block.get("bbox"):
+            warnings.append(f"missing_bbox:{block['id']}")
+    for block in blocks:
+        if not block.get("text", "").strip():
+            warnings.append(f"empty_text_detected:{block['id']}")
     for block in noise:
         warnings.append(f"noise_filtered:{block['text']}")
-    return result, warnings
+    return result, noise, warnings
 
 
 def get_ocr():
@@ -193,6 +250,7 @@ def get_ocr():
             use_doc_orientation_classify=False,
             use_doc_unwarping=False,
             use_textline_orientation=False,
+            return_word_box=True,
             device="gpu:0",
         )
     return OCR_INSTANCE
@@ -216,13 +274,15 @@ def lookup_image(image_input):
     normalize_result_ms = round((time.perf_counter() - normalize_started) * 1000, 2)
 
     reorder_started = time.perf_counter()
-    blocks, warnings = reorder_vertical_japanese_blocks(blocks)
+    ordered_blocks, discarded_blocks, warnings = reorder_vertical_japanese_blocks(blocks)
     reorder_ms = round((time.perf_counter() - reorder_started) * 1000, 2)
-    lines = [block["text"] for block in blocks]
+    lines = [block["text"] for block in ordered_blocks]
     return {
         "text": "\n".join(lines),
         "lines": lines,
         "warnings": warnings,
+        "blocks": ordered_blocks,
+        "discardedBlocks": discarded_blocks,
         "elapsedMs": round((time.perf_counter() - started) * 1000, 2),
         "profile": {
             "predict_ms": predict_ms,
@@ -230,6 +290,8 @@ def lookup_image(image_input):
             "reorder_ms": reorder_ms,
             "raw_result_items": len(raw_result) if isinstance(raw_result, list) else None,
             "normalized_blocks": len(blocks),
+            "ordered_blocks": len(ordered_blocks),
+            "discarded_blocks": len(discarded_blocks),
         },
     }
 

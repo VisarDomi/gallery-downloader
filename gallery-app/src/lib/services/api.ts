@@ -2,6 +2,44 @@ import { API } from '../config.js';
 import type { Gallery, GalleryListItem, SearchResponse } from '../types.js';
 import type { OcrViewportRequest } from './captureViewport.js';
 
+export type OcrBackendId = 'paddle-current';
+
+export interface OcrLookupRun {
+    backend: OcrBackendId;
+    text: string;
+    lines: string[];
+    warnings: string[];
+    elapsedMs: number;
+    blocks?: unknown[];
+    discardedBlocks?: unknown[];
+    profile?: Record<string, unknown>;
+    artifacts?: {
+        requestPath?: string;
+        imagePath?: string;
+        resultPath?: string;
+        textPath?: string;
+    };
+}
+
+export interface OcrLookupResponse {
+    backend: OcrBackendId;
+    text: string;
+    lines: string[];
+    warnings: string[];
+    elapsedMs: number;
+    blocks?: unknown[];
+    discardedBlocks?: unknown[];
+    profile?: Record<string, unknown>;
+    availableBackends: OcrBackendId[];
+    runs: OcrLookupRun[];
+    artifacts?: {
+        requestPath?: string;
+        imagePath?: string;
+        resultPath?: string;
+        textPath?: string;
+    };
+}
+
 export async function search(query: string = ''): Promise<SearchResponse> {
     const res = await fetch(API.SEARCH(query));
     const data = await res.json();
@@ -109,16 +147,29 @@ export async function deleteGalleries(ids: number[]): Promise<{
     return res.json();
 }
 
-export async function ocrLookup(viewport: OcrViewportRequest): Promise<{
-    text: string;
-    lines: string[];
-    warnings: string[];
-    elapsedMs: number;
+export async function getOcrBackends(): Promise<{
+    availableBackends: OcrBackendId[];
+    defaultBackend: OcrBackendId;
 }> {
+    const res = await fetch(API.OCR_BACKENDS());
+    return res.json();
+}
+
+export async function ocrLookup(
+    viewport: OcrViewportRequest,
+    options?: {
+        backend?: OcrBackendId;
+        compareBackends?: OcrBackendId[];
+    },
+): Promise<OcrLookupResponse> {
     const res = await fetch(API.OCR_LOOKUP(), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(viewport),
+        body: JSON.stringify({
+            ...viewport,
+            backend: options?.backend,
+            compareBackends: options?.compareBackends,
+        }),
     });
     if (!res.ok) {
         const err = await res.json().catch(() => ({ error: 'Unknown error' }));

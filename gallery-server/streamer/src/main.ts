@@ -8,7 +8,7 @@ import { CONFIG } from './config.js';
 import { createHttpsServer } from './ssl.js';
 import { handleBatchRequest } from './batch.js';
 import { handleDeleteRequest } from './delete.js';
-import { handleOcrLookupRequest } from './ocr.js';
+import { handleOcrBackendsRequest, handleOcrLookupRequest } from './ocr.js';
 
 const app = express();
 
@@ -60,6 +60,7 @@ app.get('/api/cert', (_req, res) => {
     }
 });
 
+app.get('/api/ocr/backends', handleOcrBackendsRequest);
 app.post('/api/ocr/lookup', handleOcrLookupRequest);
 app.post('/api/batch', handleBatchRequest);
 app.post('/api/delete', handleDeleteRequest);

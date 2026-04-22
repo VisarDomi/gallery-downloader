@@ -6,12 +6,32 @@ import { createInterface } from 'readline';
 import type { Request, Response } from 'express';
 import { CONFIG } from './config.js';
 
+export type OcrBackendId = 'paddle-current';
+
 interface OcrLookupResult {
     text: string;
     lines: string[];
     warnings: string[];
     elapsedMs: number;
+    blocks?: unknown[];
+    discardedBlocks?: unknown[];
     profile?: Record<string, unknown>;
+}
+
+interface OcrBackendRun extends OcrLookupResult {
+    backend: OcrBackendId;
+    artifacts?: {
+        requestPath?: string;
+        imagePath?: string;
+        resultPath?: string;
+        textPath?: string;
+    };
+}
+
+interface OcrLookupResponse extends OcrLookupResult {
+    backend: OcrBackendId;
+    availableBackends: OcrBackendId[];
+    runs: OcrBackendRun[];
 }
 
 interface OcrViewportImageRequest {
@@ -31,6 +51,8 @@ interface OcrViewportRequest {
         devicePixelRatio: number;
     };
     images: OcrViewportImageRequest[];
+    backend?: string;
+    compareBackends?: string[];
 }
 
 interface OcrWorkerCommand {
@@ -58,6 +80,33 @@ function buildDebugPaths() {
     };
 }
 
+function buildDebugPathsForBackend(backend: OcrBackendId) {
+    const base = buildDebugPaths();
+    const suffix = `.${backend}`;
+    return {
+        debugDir: base.debugDir,
+        requestPath: base.requestPath.replace('.json', `${suffix}.json`),
+        imagePath: base.imagePath.replace('.png', `${suffix}.png`),
+        resultPath: base.resultPath.replace('.result.json', `${suffix}.result.json`),
+        textPath: base.textPath.replace('.txt', `${suffix}.txt`),
+    };
+}
+
+const AVAILABLE_OCR_BACKENDS: OcrBackendId[] = ['paddle-current'];
+
+function isKnownBackend(value: unknown): value is OcrBackendId {
+    return typeof value === 'string' && AVAILABLE_OCR_BACKENDS.includes(value as OcrBackendId);
+}
+
+function resolveRequestedBackends(request: OcrViewportRequest): OcrBackendId[] {
+    const requested = [
+        request.backend,
+        ...(Array.isArray(request.compareBackends) ? request.compareBackends : []),
+    ].filter(isKnownBackend);
+    const deduped = Array.from(new Set(requested));
+    return deduped.length > 0 ? deduped : ['paddle-current'];
+}
+
 function isFiniteNumber(value: unknown): value is number {
     return typeof value === 'number' && Number.isFinite(value);
 }
@@ -70,6 +119,11 @@ function isViewportRequest(body: unknown): body is OcrViewportRequest {
     const viewport = candidate.viewport as OcrViewportRequest['viewport'];
     if (!isFiniteNumber(viewport.width) || !isFiniteNumber(viewport.height)) return false;
     if (!isFiniteNumber(viewport.scale) || !isFiniteNumber(viewport.devicePixelRatio)) return false;
+    if (candidate.backend !== undefined && typeof candidate.backend !== 'string') return false;
+    if (candidate.compareBackends !== undefined) {
+        if (!Array.isArray(candidate.compareBackends)) return false;
+        if (!candidate.compareBackends.every((item) => typeof item === 'string')) return false;
+    }
     return candidate.images.every((item) =>
         item
         && typeof item.mediaPath === 'string'
@@ -190,21 +244,30 @@ class OcrWorker {
 
 const ocrWorker = new OcrWorker();
 
-export async function handleOcrLookupRequest(req: Request, res: Response) {
-    const requestStarted = performance.now();
-    if (!isViewportRequest(req.body)) {
-        return res.status(400).json({ error: 'Invalid OCR viewport payload' });
-    }
+function buildRunArtifacts(debugPaths: ReturnType<typeof buildDebugPathsForBackend> | null) {
+    if (!debugPaths) return undefined;
+    return {
+        requestPath: debugPaths.requestPath,
+        imagePath: debugPaths.imagePath,
+        resultPath: debugPaths.resultPath,
+        textPath: debugPaths.textPath,
+    };
+}
 
-    const debugPaths = CONFIG.OCR_DEBUG_ARTIFACTS ? buildDebugPaths() : null;
-    const requestPath = debugPaths?.requestPath ?? path.join(os.tmpdir(), `gallery-ocr-request-${process.pid}-${Date.now()}.json`);
+async function runBackendLookup(
+    backend: OcrBackendId,
+    requestBody: OcrViewportRequest,
+    requestStarted: number,
+): Promise<OcrBackendRun> {
+    const debugPaths = CONFIG.OCR_DEBUG_ARTIFACTS ? buildDebugPathsForBackend(backend) : null;
+    const requestPath = debugPaths?.requestPath ?? path.join(os.tmpdir(), `gallery-ocr-request-${backend}-${process.pid}-${Date.now()}.json`);
 
     try {
         const saveStarted = performance.now();
         if (debugPaths) {
             await fs.mkdir(debugPaths.debugDir, { recursive: true });
         }
-        await fs.writeFile(requestPath, JSON.stringify(req.body, null, 2), 'utf8');
+        await fs.writeFile(requestPath, JSON.stringify(requestBody, null, 2), 'utf8');
         const requestSaveMs = Number((performance.now() - saveStarted).toFixed(2));
         if (debugPaths) {
             console.log(`[OCR] saved debug request ${requestPath}`);
@@ -224,20 +287,65 @@ export async function handleOcrLookupRequest(req: Request, res: Response) {
             await fs.writeFile(debugPaths.textPath, result.text, 'utf8');
             console.log(`[OCR] saved debug result ${debugPaths.resultPath}`);
         }
+
         const totalRequestMs = Number((performance.now() - requestStarted).toFixed(2));
         console.log('[OCR] timing', JSON.stringify({
+            backend,
             requestSaveMs,
             workerRoundtripMs,
             totalRequestMs,
             profile: result.profile ?? null,
         }));
-        return res.json(result);
-    } catch (error) {
-        console.error('[OCR] lookup failed', error);
-        return res.status(500).json({ error: String((error as Error)?.message ?? error) });
+
+        return {
+            ...result,
+            backend,
+            artifacts: buildRunArtifacts(debugPaths),
+        };
     } finally {
         if (!debugPaths) {
             fs.unlink(requestPath).catch(() => undefined);
         }
+    }
+}
+
+export function handleOcrBackendsRequest(_req: Request, res: Response) {
+    return res.json({
+        availableBackends: AVAILABLE_OCR_BACKENDS,
+        defaultBackend: 'paddle-current',
+    });
+}
+
+export async function handleOcrLookupRequest(req: Request, res: Response) {
+    const requestStarted = performance.now();
+    if (!isViewportRequest(req.body)) {
+        return res.status(400).json({ error: 'Invalid OCR viewport payload' });
+    }
+    const requestedBackends = resolveRequestedBackends(req.body);
+    const requestBody: OcrViewportRequest = {
+        ...req.body,
+        backend: requestedBackends[0],
+        compareBackends: requestedBackends.slice(1),
+    };
+
+    try {
+        const runs: OcrBackendRun[] = [];
+        for (const backend of requestedBackends) {
+            runs.push(await runBackendLookup(backend, requestBody, requestStarted));
+        }
+        if (runs.length === 0) {
+            throw new Error('No OCR backends selected');
+        }
+        const primary = runs[0];
+        const response: OcrLookupResponse = {
+            ...primary,
+            backend: primary.backend,
+            availableBackends: AVAILABLE_OCR_BACKENDS,
+            runs,
+        };
+        return res.json(response);
+    } catch (error) {
+        console.error('[OCR] lookup failed', error);
+        return res.status(500).json({ error: String((error as Error)?.message ?? error) });
     }
 }

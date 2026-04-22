@@ -29,6 +29,7 @@ export const API = {
     QUERIES: () => '/queries',
     MEDIA: (path: string) => `/media/${path.split('/').map(encodeURIComponent).join('/')}`,
     DELETE: () => '/api/delete',
+    OCR_BACKENDS: () => '/api/ocr/backends',
     OCR_LOOKUP: () => '/api/ocr/lookup',
     ARTISTS: () => '/artists',
     ARTISTS_ADD: () => '/artists/add',
