@@ -23,3 +23,11 @@ python3 tests/ocr-ground-truth/generate_cases.py --render
 ```
 
 Generated output goes under each case folder and is safe to delete and rebuild.
+
+Run OCR over every generated request and store per-variant model outputs with:
+
+```bash
+python3 tests/ocr-ground-truth/run_cases.py --backend paddle-current
+```
+
+That writes results under each case's `generated/results/<backend>/`.

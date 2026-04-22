@@ -10,3 +10,6 @@ gallery-server/sprite-gen/sprite-gen
 gallery-server/artists.txt
 gallery-server/filters.txt
 gallery-server/queries.txt
+tests/ocr-ground-truth/__pycache__/
+tests/ocr-ground-truth/**/*.pyc
+tests/ocr-ground-truth/**/generated/results/
