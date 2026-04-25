@@ -1,0 +1,14 @@
+{
+  "case": "case-2026-04-25-campus-narration",
+  "transcriptPath": "tests/ocr-ground-truth/case-2026-04-25-campus-narration/transcript.txt",
+  "variants": [
+    {
+      "id": "golden",
+      "family": "baseline",
+      "description": "Exact frontend request.",
+      "requestPath": "tests/ocr-ground-truth/case-2026-04-25-campus-narration/generated/golden.request.json",
+      "imagePath": "tests/ocr-ground-truth/case-2026-04-25-campus-narration/generated/golden.png"
+    }
+  ]
+}
+
