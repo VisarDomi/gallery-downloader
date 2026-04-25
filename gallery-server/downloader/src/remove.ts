@@ -1,14 +1,13 @@
 import fs from 'fs';
 import path from 'path';
-import https from 'https';
 import { execSync } from 'child_process';
 import Database from 'better-sqlite3';
 import { loadManifest } from './manifest.js';
 import { resolveManifest, resolveEntryWithFilters } from './manifest-resolver.js';
 import { CONFIG } from './config.js';
+import { requestDeletion } from './deletion-client.js';
 
 const INDEX_DB_PATH = path.join(CONFIG.WORKING_DIR, 'gallery-dl', 'gallery-index.db');
-const STREAMER_PORT = 11556;
 
 export interface RemoveStatus {
     phase: 'idle' | 'resolving-removed' | 'resolving-remaining' | 'diffing' | 'deleting' | 'committing' | 'done' | 'error';
@@ -77,39 +76,6 @@ function getLocalIds(): Set<number> {
         db.close();
     }
     return ids;
-}
-
-function requestDeletion(ids: number[]): Promise<{ deleted: number[]; skipped: { id: number; reason: string }[] }> {
-    return new Promise((resolve, reject) => {
-        const body = JSON.stringify({ ids });
-        const req = https.request(
-            {
-                hostname: 'localhost',
-                port: STREAMER_PORT,
-                path: '/api/delete',
-                method: 'POST',
-                rejectUnauthorized: false,
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Content-Length': Buffer.byteLength(body),
-                },
-            },
-            (res) => {
-                let data = '';
-                res.on('data', (chunk) => (data += chunk));
-                res.on('end', () => {
-                    try {
-                        resolve(JSON.parse(data));
-                    } catch {
-                        reject(new Error(`Bad response from streamer: ${data}`));
-                    }
-                });
-            },
-        );
-        req.on('error', (err) => reject(new Error(`Streamer connection failed: ${err.message}`)));
-        req.write(body);
-        req.end();
-    });
 }
 
 export function gitCommit(filePath: string, message: string): boolean {

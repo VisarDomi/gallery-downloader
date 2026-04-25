@@ -28,7 +28,7 @@ app.use(createProxyMiddleware({
     target: 'https://localhost:11558',
     secure: false,
     changeOrigin: true,
-    pathFilter: ['/immediate', '/sync', '/sync/status', '/queries', '/remove', '/remove/status', '/artists'],
+    pathFilter: ['/immediate', '/sync', '/sync/status', '/queries', '/remove', '/remove/status', '/policy-cleanup', '/policy-cleanup/status', '/artists'],
 }));
 
 // Body parsing (after proxy routes, so proxied requests keep their raw stream)

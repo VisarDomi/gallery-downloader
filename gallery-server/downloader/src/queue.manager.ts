@@ -298,6 +298,21 @@ class QueueManager {
         return added;
     }
 
+    public retainQueuedGalleryIds(allowedIds: Set<number>): number {
+        const before = this.downloadQueue.length;
+        this.downloadQueue = this.downloadQueue.filter((url) => {
+            const id = extractGalleryId(url);
+            if (!id) return true;
+            return allowedIds.has(Number(id));
+        });
+
+        const removed = before - this.downloadQueue.length;
+        if (removed > 0) {
+            this.emitState();
+        }
+        return removed;
+    }
+
     public restore() {
         const saved = loadQueue();
         if (!saved || saved.queue.length === 0) return;

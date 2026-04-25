@@ -70,9 +70,19 @@
 
 **Cleanup rule:** A local gallery is removed ONLY if it has a filter-negative tag. The wanted set from nozomi determines what to download, not what to keep.
 
+## Filter policy cleanup: local enforcement
+
+**Decision:** `filters.txt` is enforced in two places: remote resolution prevents future downloads, and downloader-owned policy cleanup removes already-local violations. Cleanup reads the index DB in readonly mode to find local galleries whose indexed columns/tags match filter negatives, then delegates deletion to the streamer through `POST /api/delete`.
+
+**Why:** Sync answers "what should be downloaded next"; it is not enough to enforce "what is allowed to remain local." Existing galleries can become invalid when a new negative filter is added. The downloader owns manifest policy and cleanup orchestration, while the streamer remains the single writer for disk, archive DB, and index DB deletion.
+
+**Status/logging:** Policy cleanup logs `start`, `deleting N policy violations`, and `done/error` under `[policy-cleanup]`. It runs after sync and once on downloader startup, and can be triggered manually through `POST /policy-cleanup`. `GET /policy-cleanup/status` exposes the current phase and counts.
+
+**Queue hygiene:** After resolving the current manifest, sync prunes queued gallery URLs whose IDs are no longer wanted. This handles queues restored from before a filter change. An already-active download is allowed to finish and is then checked by the post-download validator.
+
 ## Post-download validation: language check
 
-**Decision:** After gallery-dl completes a download, the queue manager calls a validator. The validator reads `info.json` and checks `language` against the filter language. Mismatch → gallery is deleted immediately.
+**Decision:** After gallery-dl completes a download, the queue manager calls a validator. The validator reads `info.json` and checks `language` plus filter negatives against the current filter policy. Mismatch or excluded tag/series/etc. → gallery is deleted immediately.
 
 **Why:** Hitomi's nozomi URL includes the language (`artist/name-japanese.nozomi`), but the API sometimes returns non-japanese gallery IDs. gallery-dl downloads whatever ID it's given. Without validation, wrong-language galleries accumulate (~3 out of ~13000 historically). The check is at the download boundary — where external data enters the system.
 

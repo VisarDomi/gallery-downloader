@@ -12,6 +12,7 @@ import { queueManager } from './queue.manager.js';
 import { runSync, getSyncStatus } from './sync.js';
 import { runRemove, getRemoveStatus, gitCommit } from './remove.js';
 import { loadManifest } from './manifest.js';
+import { buildFilterPolicy, getPolicyCleanupStatus, runPolicyCleanup, validateGalleryInfo } from './policy.js';
 import { hitomi } from 'gallery-sources';
 
 const app = express();
@@ -19,6 +20,7 @@ const app = express();
 const FILTERS_PATH = path.resolve(import.meta.dirname, '..', '..', 'filters.txt');
 const ARTISTS_PATH = path.resolve(import.meta.dirname, '..', '..', 'artists.txt');
 const QUERIES_PATH = path.resolve(import.meta.dirname, '..', '..', 'queries.txt');
+const INDEX_DB_PATH = path.join(CONFIG.WORKING_DIR, 'gallery-dl', 'gallery-index.db');
 
 const logServerInfo = (port: number) => {
     const networkInterfaces = os.networkInterfaces();
@@ -123,6 +125,15 @@ app.get('/remove/status', (_req, res) => {
     res.json(getRemoveStatus());
 });
 
+app.post('/policy-cleanup', (_req, res) => {
+    res.json({ status: 'started' });
+    runPolicyCleanup(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH, INDEX_DB_PATH).catch(console.error);
+});
+
+app.get('/policy-cleanup/status', (_req, res) => {
+    res.json(getPolicyCleanupStatus());
+});
+
 // --- ARTISTS ENDPOINTS ---
 app.get('/artists', (_req, res) => {
     const manifest = loadManifest(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH);
@@ -198,14 +209,15 @@ function watchManifests() {
 // Rejects galleries whose language doesn't match filters.txt.
 // Hitomi's nozomi sometimes returns wrong-language IDs for an artist.
 const GALLERY_ROOT = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
-const filterLanguage = loadManifest(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH).filters.language;
 
 queueManager.setValidator((galleryId) => {
     const infoPath = path.join(GALLERY_ROOT, galleryId, hitomi.metadataFile);
     try {
+        const filterPolicy = buildFilterPolicy(loadManifest(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH).filters);
         const info = JSON.parse(fs.readFileSync(infoPath, 'utf-8'));
-        if (info.language !== filterLanguage) {
-            return { valid: false, reason: `language "${info.language}" != "${filterLanguage}"` };
+        const decision = validateGalleryInfo(info, filterPolicy);
+        if (decision.kind === 'reject') {
+            return { valid: false, reason: decision.reason };
         }
         return { valid: true };
     } catch {
@@ -234,4 +246,5 @@ server.listen(CONFIG.PORT, '0.0.0.0', () => {
     logServerInfo(CONFIG.PORT);
     queueManager.restore();
     watchManifests();
+    runPolicyCleanup(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH, INDEX_DB_PATH).catch(console.error);
 });
