@@ -9,10 +9,10 @@
     {
       "pageIndex": 5,
       "mediaPath": "gallery-dl/hitomi/2327333/hitomi_2327333_0006.webp",
-      "left": -283,
-      "top": -3,
-      "width": 428,
-      "height": 321
+      "left": -335.875,
+      "top": -25.95,
+      "width": 492.2,
+      "height": 369.15
     }
   ],
   "backend": "paddle-vl",

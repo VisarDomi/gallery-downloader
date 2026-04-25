@@ -1,0 +1,29 @@
+{
+  "viewport": {
+    "width": 168,
+    "height": 363,
+    "scale": 2.5367608070373535,
+    "devicePixelRatio": 3
+  },
+  "images": [
+    {
+      "pageIndex": 8,
+      "mediaPath": "gallery-dl/hitomi/2327333/hitomi_2327333_0009.webp",
+      "left": -260,
+      "top": -267,
+      "width": 428,
+      "height": 321
+    },
+    {
+      "pageIndex": 9,
+      "mediaPath": "gallery-dl/hitomi/2327333/hitomi_2327333_0010.webp",
+      "left": -260,
+      "top": 54,
+      "width": 428,
+      "height": 321
+    }
+  ],
+  "backend": "paddle-vl",
+  "compareBackends": []
+}
+

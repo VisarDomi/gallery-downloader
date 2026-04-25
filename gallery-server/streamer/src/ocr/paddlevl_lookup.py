@@ -28,6 +28,10 @@ SERVER_PORT = 8111
 SERVER_URL = f"http://127.0.0.1:{SERVER_PORT}/v1/chat/completions"
 HEALTH_URL = f"http://127.0.0.1:{SERVER_PORT}/health"
 SERVER_LOG_PATH = Path(tempfile.gettempdir()) / "gallery-ocr-paddlevl-llama-server.log"
+OCR_PROMPT = (
+    "画像内に見える日本語テキストをすべて書き起こしてください。"
+    "本文だけを返してください。要約しないでください。"
+)
 
 
 def stop_llama_server():
@@ -133,7 +137,7 @@ def run_vl_ocr(image_rgb: Image.Image):
             {
                 "role": "user",
                 "content": [
-                    {"type": "text", "text": "OCR:"},
+                    {"type": "text", "text": OCR_PROMPT},
                     {"type": "image_url", "image_url": {"url": image_to_data_url(image_rgb)}},
                 ],
             }
@@ -164,9 +168,116 @@ def run_vl_ocr(image_rgb: Image.Image):
     return str(content).strip()
 
 
+def rect_for_image(image: dict):
+    return {
+        "left": float(image["left"]),
+        "top": float(image["top"]),
+        "width": float(image["width"]),
+        "height": float(image["height"]),
+    }
+
+
+def intersect_rect(a: dict, b: dict):
+    left = max(a["left"], b["left"])
+    top = max(a["top"], b["top"])
+    right = min(a["left"] + a["width"], b["left"] + b["width"])
+    bottom = min(a["top"] + a["height"], b["top"] + b["height"])
+    if right <= left or bottom <= top:
+        return None
+    return {
+        "left": left,
+        "top": top,
+        "width": right - left,
+        "height": bottom - top,
+    }
+
+
+def point_in_rect(x: float, y: float, rect: dict):
+    return (
+        x >= rect["left"]
+        and x <= rect["left"] + rect["width"]
+        and y >= rect["top"]
+        and y <= rect["top"] + rect["height"]
+    )
+
+
+def rect_center_distance_squared(x: float, y: float, rect: dict):
+    cx = rect["left"] + rect["width"] / 2.0
+    cy = rect["top"] + rect["height"] / 2.0
+    return ((cx - x) ** 2) + ((cy - y) ** 2)
+
+
+def reduce_payload_to_center_image(payload: dict):
+    viewport = payload["viewport"]
+    viewport_rect = {
+        "left": 0.0,
+        "top": 0.0,
+        "width": float(viewport["width"]),
+        "height": float(viewport["height"]),
+    }
+    center_x = viewport_rect["width"] / 2.0
+    center_y = viewport_rect["height"] / 2.0
+    candidates = []
+
+    for index, image in enumerate(payload.get("images") or []):
+        image_rect = rect_for_image(image)
+        if image_rect["width"] <= 0 or image_rect["height"] <= 0:
+            continue
+        visible = intersect_rect(viewport_rect, image_rect)
+        if not visible:
+            continue
+        contains_center = point_in_rect(center_x, center_y, image_rect)
+        candidates.append(
+            {
+                "index": index,
+                "image": image,
+                "image_rect": image_rect,
+                "visible": visible,
+                "contains_center": contains_center,
+                "distance": rect_center_distance_squared(center_x, center_y, image_rect),
+            }
+        )
+
+    if not candidates:
+        return payload, {
+            "selected_image_index": None,
+            "selected_page_index": None,
+            "center_image_crop": False,
+            "center_image_reason": "no-visible-images",
+        }
+
+    selected = min(candidates, key=lambda item: (not item["contains_center"], item["distance"], item["index"]))
+    visible = selected["visible"]
+    image = dict(selected["image"])
+    image["left"] = float(selected["image_rect"]["left"]) - float(visible["left"])
+    image["top"] = float(selected["image_rect"]["top"]) - float(visible["top"])
+
+    reduced = dict(payload)
+    reduced["viewport"] = {
+        **viewport,
+        "width": float(visible["width"]),
+        "height": float(visible["height"]),
+    }
+    reduced["images"] = [image]
+    return reduced, {
+        "selected_image_index": selected["index"],
+        "selected_page_index": image.get("pageIndex"),
+        "center_image_crop": True,
+        "center_image_contains_viewport_center": selected["contains_center"],
+        "source_viewport_width": float(viewport["width"]),
+        "source_viewport_height": float(viewport["height"]),
+        "selected_visible_left": round(float(visible["left"]), 3),
+        "selected_visible_top": round(float(visible["top"]), 3),
+        "selected_visible_width": round(float(visible["width"]), 3),
+        "selected_visible_height": round(float(visible["height"]), 3),
+        "source_image_count": len(payload.get("images") or []),
+    }
+
+
 def lookup_single_payload(media_root: Path, payload: dict, output_path: Path | None = None):
     render_started = time.perf_counter()
-    image_bgr, render_profile = render_viewport_image(media_root, payload, output_path)
+    render_payload, selection_profile = reduce_payload_to_center_image(payload)
+    image_bgr, render_profile = render_viewport_image(media_root, render_payload, output_path)
     render_ms = round((time.perf_counter() - render_started) * 1000, 2)
     image_rgb = Image.fromarray(image_bgr[:, :, ::-1])
 
@@ -194,7 +305,8 @@ def lookup_single_payload(media_root: Path, payload: dict, output_path: Path | N
         "salvagedBlocks": [],
         "elapsedMs": round((time.perf_counter() - render_started) * 1000, 2),
         "profile": {
-            "mode": "full-viewport-vl",
+            "mode": "center-image-vl",
+            **selection_profile,
             "render_ms": render_ms,
             "render_total_ms": render_profile.get("render_total_ms"),
             "render_width": int(image_bgr.shape[1]),
@@ -213,7 +325,7 @@ def lookup_viewport_payload(media_root: Path, payload: dict, output_path: Path |
     profile = dict(final_result.get("profile") or {})
     profile.update(
         {
-            "harness": "full-viewport-vl",
+            "harness": "center-image-vl",
             "rotation_sweep_used": False,
             "rotation_sweep_total_ms": round((time.perf_counter() - sweep_started) * 1000, 2),
         }

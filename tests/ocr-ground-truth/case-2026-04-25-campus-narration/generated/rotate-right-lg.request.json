@@ -16,5 +16,6 @@
     }
   ],
   "backend": "paddle-vl",
-  "compareBackends": []
+  "compareBackends": [],
+  "ocrImageRotationDegrees": -20.0
 }
