@@ -1,39 +1,34 @@
 import fs from 'fs';
 import path from 'path';
 import { execSync } from 'child_process';
-import Database from 'better-sqlite3';
 import { loadManifest } from './manifest.js';
-import { resolveManifest, resolveEntryWithFilters } from './manifest-resolver.js';
 import { CONFIG } from './config.js';
 import { requestDeletion } from './deletion-client.js';
+import { planLocalRemove } from './local-manifest.js';
 
 const INDEX_DB_PATH = path.join(CONFIG.WORKING_DIR, 'gallery-dl', 'gallery-index.db');
 
 export interface RemoveStatus {
-    phase: 'idle' | 'resolving-removed' | 'resolving-remaining' | 'diffing' | 'deleting' | 'committing' | 'done' | 'error';
+    phase: 'idle' | 'removing-line' | 'planning' | 'deleting' | 'committing' | 'done' | 'error';
     removedLine: string;
-    removedIdCount: number;
-    resolvedCount: number;
-    resolvedTotal: number;
-    wantedCount: number;
+    candidateCount: number;
+    retainedCount: number;
     localCount: number;
     orphanCount: number;
     deletedCount: number;
-    skippedCount: number;
+    deleteSkippedCount: number;
     error: string | null;
 }
 
 let currentRemove: RemoveStatus = {
     phase: 'idle',
     removedLine: '',
-    removedIdCount: 0,
-    resolvedCount: 0,
-    resolvedTotal: 0,
-    wantedCount: 0,
+    candidateCount: 0,
+    retainedCount: 0,
     localCount: 0,
     orphanCount: 0,
     deletedCount: 0,
-    skippedCount: 0,
+    deleteSkippedCount: 0,
     error: null,
 };
 
@@ -66,18 +61,6 @@ function restoreFile(filePath: string, originalContent: string) {
     fs.writeFileSync(filePath, originalContent);
 }
 
-function getLocalIds(): Set<number> {
-    const ids = new Set<number>();
-    if (fs.existsSync(INDEX_DB_PATH)) {
-        const db = new Database(INDEX_DB_PATH, { readonly: true });
-        db.pragma('journal_mode = WAL');
-        const rows = db.prepare('SELECT gallery_id FROM galleries').all() as { gallery_id: number }[];
-        for (const row of rows) ids.add(row.gallery_id);
-        db.close();
-    }
-    return ids;
-}
-
 export function gitCommit(filePath: string, message: string): boolean {
     const repoRoot = path.resolve(filePath, '..', '..');
     try {
@@ -104,16 +87,14 @@ export async function runRemove(
     const t0 = Date.now();
 
     currentRemove = {
-        phase: 'resolving-removed',
+        phase: 'removing-line',
         removedLine: line,
-        removedIdCount: 0,
-        resolvedCount: 0,
-        resolvedTotal: 0,
-        wantedCount: 0,
+        candidateCount: 0,
+        retainedCount: 0,
         localCount: 0,
         orphanCount: 0,
         deletedCount: 0,
-        skippedCount: 0,
+        deleteSkippedCount: 0,
         error: null,
     };
 
@@ -121,11 +102,6 @@ export async function runRemove(
 
     try {
         log(`start ${line} from ${file}.txt`);
-
-        // Resolve the removed entry's filtered IDs (same policy as sync)
-        const manifestBefore = loadManifest(filtersPath, artistsPath, queriesPath);
-        const removed = await resolveEntryWithFilters(manifestBefore, file, line);
-        currentRemove.removedIdCount = removed.ids.size;
 
         // Remove line from file (save original for rollback)
         originalContent = removeLineFromFile(filePath, line);
@@ -135,50 +111,23 @@ export async function runRemove(
             logError(currentRemove.error);
             return currentRemove;
         }
+        log(`removed line from ${file}.txt: ${line}`);
 
-        // Resolve remaining manifest (with filters applied)
-        currentRemove.phase = 'resolving-remaining';
-        const remaining = await resolveManifest(filtersPath, artistsPath, queriesPath, {
-            onArtistResolved: (resolved, total) => {
-                currentRemove.resolvedTotal = total;
-                currentRemove.resolvedCount = resolved;
-            },
-            onQueryResolved: (_resolved, _total, _queryIds, _totalIds) => {
-                currentRemove.resolvedCount++;
-            },
-        });
-        currentRemove.wantedCount = remaining.wantedIds.size;
-        currentRemove.resolvedTotal = remaining.artistCount + remaining.queryCount;
+        currentRemove.phase = 'planning';
+        const manifestAfterRemoval = loadManifest(filtersPath, artistsPath, queriesPath);
+        const plan = planLocalRemove(INDEX_DB_PATH, manifestAfterRemoval, file, line);
+        currentRemove.localCount = plan.localCount;
+        currentRemove.candidateCount = plan.candidateIds.length;
+        currentRemove.retainedCount = plan.retainedIds.length;
+        currentRemove.orphanCount = plan.orphanIds.length;
+        log(`planned local remove: ${plan.candidateIds.length} candidates, ${plan.retainedIds.length} retained, ${plan.orphanIds.length} orphans`);
 
-        if (remaining.errors.length > 0) {
-            restoreFile(filePath, originalContent);
-            originalContent = null;
-            currentRemove.phase = 'error';
-            currentRemove.error = `${remaining.errors.length} resolution failures, aborting`;
-            for (const e of remaining.errors) logError(e);
-            logError('incomplete wanted set, rolled back file change');
-            return currentRemove;
-        }
-
-        // Compute orphans: (removed IDs) ∩ (local) - (still wanted)
-        currentRemove.phase = 'diffing';
-        const localIds = getLocalIds();
-        currentRemove.localCount = localIds.size;
-
-        const orphans: number[] = [];
-        for (const id of removed.ids) {
-            if (localIds.has(id) && !remaining.wantedIds.has(id)) {
-                orphans.push(id);
-            }
-        }
-        currentRemove.orphanCount = orphans.length;
-
-        if (orphans.length > 0) {
+        if (plan.orphanIds.length > 0) {
             currentRemove.phase = 'deleting';
-            log(`deleting ${orphans.length} orphans`);
-            const result = await requestDeletion(orphans);
+            log(`deleting ${plan.orphanIds.length} orphans`);
+            const result = await requestDeletion(plan.orphanIds);
             currentRemove.deletedCount = result.deleted.length;
-            currentRemove.skippedCount = result.skipped.length;
+            currentRemove.deleteSkippedCount = result.skipped.length;
             for (const s of result.skipped) {
                 logError(`skip ${s.id}: ${s.reason}`);
             }
@@ -191,7 +140,7 @@ export async function runRemove(
         }
 
         currentRemove.phase = 'done';
-        log(`done ${currentRemove.deletedCount} deleted, ${currentRemove.skippedCount} skipped, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+        log(`done ${currentRemove.deletedCount} deleted, ${currentRemove.deleteSkippedCount} delete-skipped, ${((Date.now() - t0) / 1000).toFixed(1)}s`);
         return currentRemove;
     } catch (e) {
         currentRemove.phase = 'error';
