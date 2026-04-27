@@ -34,7 +34,11 @@
             <span class="query">{query}</span>
         {/if}
     </div>
-
+    <Pagination
+            currentPage={source.currentPage}
+            totalPages={source.totalPages}
+            onPage={(p) => appState.changePage(viewId, source, p)}
+    />
     <div class="gallery-list-container">
         <GalleryList {galleries} {allowReplay} />
     </div>
