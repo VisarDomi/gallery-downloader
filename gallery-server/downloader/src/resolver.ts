@@ -10,6 +10,7 @@
 
 import https from 'https';
 import { URL } from 'url';
+import { parseTaggedQuery } from 'gallery-sources';
 
 const DOMAIN = 'gold-usergeneratedcontent.net';
 const ORIGIN = 'https://hitomi.la';
@@ -27,7 +28,7 @@ function buildNozomiUrl(query: string, language: string): string {
     if (colonIdx === -1) throw new Error(`Invalid query token: ${query}`);
 
     const ns = query.slice(0, colonIdx);
-    const tag = query.slice(colonIdx + 1).replace(/_/g, ' ');
+    const tag = query.slice(colonIdx + 1).trim().toLowerCase();
 
     if (ns === 'language') {
         return `https://ltn.${DOMAIN}/n/${encodeURIComponent('index')}-${encodeURIComponent(tag)}.nozomi`;
@@ -135,26 +136,18 @@ export async function resolveArtistEntry(
  * Positive tokens are intersected, negative tokens are subtracted.
  */
 export async function resolveQuery(queryLine: string): Promise<ResolveResult> {
-    const tokens = queryLine.trim().split(/\s+/).filter(t => t.length > 0);
-    const positive: string[] = [];
-    const negative: string[] = [];
-
-    for (const t of tokens) {
-        if (t.startsWith('-')) {
-            negative.push(t.slice(1));
-        } else {
-            positive.push(t);
-        }
-    }
+    const tokens = parseTaggedQuery(queryLine);
+    const positive = tokens.filter(t => !t.negated);
+    const negative = tokens.filter(t => t.negated);
 
     // Determine language from positive tokens (default: "all")
     let language = 'all';
     const nonLangPositive: string[] = [];
     for (const t of positive) {
-        if (t.startsWith('language:')) {
-            language = t.slice('language:'.length).replace(/_/g, ' ');
+        if (t.namespace === 'language') {
+            language = t.value;
         } else {
-            nonLangPositive.push(t);
+            nonLangPositive.push(`${t.namespace}:${t.value}`);
         }
     }
 
@@ -198,7 +191,8 @@ export async function resolveQuery(queryLine: string): Promise<ResolveResult> {
     }
 
     // Subtract negative tokens
-    for (const tag of negative) {
+    for (const token of negative) {
+        const tag = `${token.namespace}:${token.value}`;
         const url = buildNozomiUrl(tag, language);
         try {
             const ids = await fetchNozomi(url);

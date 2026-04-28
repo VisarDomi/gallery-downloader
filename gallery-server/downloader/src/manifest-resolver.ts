@@ -17,7 +17,7 @@ function delay(ms: number): Promise<void> {
 
 /** Build a full query string: language + positive tokens + filter negatives. */
 function buildMergedQuery(queryPositives: string, language: string, negatives: string[]): string {
-    const parts = [`language:${language.replace(/ /g, '_')}`, queryPositives.trim()];
+    const parts = [`language:${language}`, queryPositives.trim()];
     for (const neg of negatives) {
         parts.push(`-${neg}`);
     }

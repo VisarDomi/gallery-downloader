@@ -1,6 +1,7 @@
 import * as api from '../services/api.js';
 import type { ToastState } from './toast.svelte.js';
 import type { LogEmit } from '../services/LogService.js';
+import { normalizeSearchValue } from 'gallery-sources';
 
 interface ArtistOp {
     type: 'add' | 'remove';
@@ -30,9 +31,9 @@ export class ArtistsState {
         }
     }
 
-    /** Build the artists.txt line from gallery metadata (spaces -> underscores) */
+    /** Build the artists.txt line from gallery metadata. */
     private toLine(namespace: string, name: string): string {
-        return `${namespace}:${name.replace(/ /g, '_')}`;
+        return `${namespace}:${normalizeSearchValue(name)}`;
     }
 
     isTracked(namespace: string, name: string): boolean {

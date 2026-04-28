@@ -5,9 +5,9 @@
 **Decision:** Three files define what to download. `filters.txt` owns base filter policy (language + exclusions). `artists.txt` owns tracked creators. `queries.txt` owns specific positive tag searches. `manifest-resolver.ts` is the single owner of resolution logic — it reads all three and produces the wanted ID set.
 
 **Ownership:**
-- `filters.txt` — language (`japanese`) + all negative tokens (`-tag:anthology`, `-female:scat`, etc.)
+- `filters.txt` — language (`japanese`) + all negative tokens (`-tag:anthology`, `-female:mind control`, etc.)
 - `artists.txt` — just `namespace:value` entries (no language, no exclusions)
-- `queries.txt` — just positive tokens per line (e.g. `female:cheating`)
+- `queries.txt` — just positive tokens per line (e.g. `female:big breasts female:cheating`)
 - `manifest-resolver.ts` — reads all three, applies filter policy to both artists and queries
 
 **Resolution flow:**
@@ -19,6 +19,8 @@
 **Why three files:** Previously, exclusions were scattered: hardcoded `EXCLUDED_TAGS` in TS (only 2 tags), inline in `queries.txt` (35 tokens), missing from `sync.py`. A gallery tagged `female:scat` by a tracked artist would download. Now all exclusions live in `filters.txt` and apply everywhere. Adding an exclusion = one line, one file.
 
 **No language override:** Language is fixed in `filters.txt`. Queries and artists do not specify language — it's inherited. This avoids conditional "which language wins" logic.
+
+**Query format:** Search terms are namespace-delimited tokens, not whitespace-delimited words. Values use Hitomi/gallery-dl text directly: lowercase with spaces, no underscores and no quotes. A value continues until the next `namespace:` or `-namespace:` marker, so `female:big breasts female:cheating` is two tokens. Free text search is intentionally unsupported.
 
 **sync.py:** Diagnostic-only tool (no `--queue`). Does NOT apply filter policy. All queuing goes through the TS sync endpoint (`POST /sync` on port 11558). The systemd timer calls `curl -sk -X POST https://localhost:11558/sync`.
 

@@ -50,7 +50,6 @@ export const hitomi: Source = {
         'artist', 'group', 'series', 'character',
     ],
     checkMatch,
-    textSearchFields: ['title', 'title_jpn'],
     facetFields: ['language', 'artist', 'group'],
     download: {
         tool: 'gallery-dl',

@@ -13,7 +13,7 @@ import { runSync, getSyncStatus } from './sync.js';
 import { runRemove, getRemoveStatus, gitCommit } from './remove.js';
 import { loadManifest } from './manifest.js';
 import { buildFilterPolicy, getPolicyCleanupStatus, runPolicyCleanup, validateGalleryInfo } from './policy.js';
-import { hitomi } from 'gallery-sources';
+import { hitomi, parseTaggedQuery, serializeTaggedQuery } from 'gallery-sources';
 
 const app = express();
 
@@ -149,15 +149,20 @@ app.post('/artists/add', (req, res) => {
         return;
     }
 
-    const trimmed = line.trim();
-    const colonIdx = trimmed.indexOf(':');
-    if (colonIdx === -1) {
-        res.status(400).json({ error: 'line must be namespace:value format' });
-        return;
-    }
-    const ns = trimmed.slice(0, colonIdx);
-    if (ns !== 'artist' && ns !== 'group') {
-        res.status(400).json({ error: 'namespace must be artist or group' });
+    let trimmed: string;
+    try {
+        const tokens = parseTaggedQuery(line);
+        if (tokens.length !== 1 || tokens[0].negated) {
+            res.status(400).json({ error: 'line must be one positive namespace:value token' });
+            return;
+        }
+        if (tokens[0].namespace !== 'artist' && tokens[0].namespace !== 'group') {
+            res.status(400).json({ error: 'namespace must be artist or group' });
+            return;
+        }
+        trimmed = serializeTaggedQuery(tokens);
+    } catch (error) {
+        res.status(400).json({ error: String((error as Error)?.message ?? error) });
         return;
     }
 

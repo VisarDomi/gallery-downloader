@@ -1,6 +1,7 @@
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import { type Filters, type Manifest } from './manifest.js';
+import { normalizeSearchValue, parseTaggedQuery } from 'gallery-sources';
 
 const DIRECT_NAMESPACES = new Set(['type', 'language']);
 
@@ -17,32 +18,25 @@ export interface LocalRemovePlan {
 }
 
 function normalizeValue(value: string): string {
-    return value.trim().replace(/_/g, ' ').toLowerCase();
+    return normalizeSearchValue(value);
 }
 
 function parseToken(raw: string): Token | null {
-    const colonIdx = raw.indexOf(':');
-    if (colonIdx === -1) return null;
-
-    const namespace = raw.slice(0, colonIdx).trim();
-    const value = normalizeValue(raw.slice(colonIdx + 1));
-    if (!namespace || !value) return null;
-
-    return { namespace, value };
+    const tokens = parseTaggedQuery(raw);
+    if (tokens.length !== 1) return null;
+    return { namespace: tokens[0].namespace, value: tokens[0].value };
 }
 
 function parseQuery(raw: string): { positive: Token[]; negative: Token[] } {
     const positive: Token[] = [];
     const negative: Token[] = [];
 
-    for (const part of raw.trim().split(/\s+/).filter(Boolean)) {
-        const negated = part.startsWith('-');
-        const token = parseToken(negated ? part.slice(1) : part);
-        if (!token) continue;
-        if (negated) {
-            negative.push(token);
+    for (const token of parseTaggedQuery(raw)) {
+        const localToken = { namespace: token.namespace, value: token.value };
+        if (token.negated) {
+            negative.push(localToken);
         } else {
-            positive.push(token);
+            positive.push(localToken);
         }
     }
 

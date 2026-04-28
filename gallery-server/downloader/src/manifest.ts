@@ -9,6 +9,7 @@
  */
 
 import fs from 'fs';
+import { parseTaggedQuery, serializeTaggedQuery } from 'gallery-sources';
 
 export interface Filters {
     language: string;
@@ -46,14 +47,17 @@ function parseFiltersFile(filePath: string): Filters {
         if (!line || line.startsWith('#')) continue;
 
         if (line.startsWith('language:')) {
-            language = line.slice('language:'.length).replace(/_/g, ' ');
+            const tokens = parseTaggedQuery(line);
+            if (tokens.length === 1 && tokens[0].namespace === 'language' && !tokens[0].negated) {
+                language = tokens[0].value;
+            }
             continue;
         }
 
         if (line.startsWith('-')) {
-            const token = line.slice(1);
-            if (token.includes(':')) {
-                negatives.push(token);
+            const tokens = parseTaggedQuery(line);
+            if (tokens.length === 1 && tokens[0].negated) {
+                negatives.push(`${tokens[0].namespace}:${tokens[0].value}`);
             }
         }
     }
@@ -75,11 +79,9 @@ function parseArtistsFile(filePath: string): ArtistEntry[] {
         const line = raw.trim();
         if (!line || line.startsWith('#')) continue;
 
-        const colonIdx = line.indexOf(':');
-        if (colonIdx === -1) continue;
-
-        const namespace = line.slice(0, colonIdx);
-        const value = line.slice(colonIdx + 1);
+        const tokens = parseTaggedQuery(line);
+        if (tokens.length !== 1 || tokens[0].negated) continue;
+        const [{ namespace, value }] = tokens;
 
         if (namespace === 'artist' || namespace === 'group') {
             entries.push({ namespace, value });
@@ -102,7 +104,9 @@ function parseQueriesFile(filePath: string): QueryEntry[] {
     for (const raw of content.split('\n')) {
         const line = raw.trim();
         if (!line || line.startsWith('#')) continue;
-        entries.push({ raw: line });
+        const tokens = parseTaggedQuery(line);
+        if (tokens.length === 0 || tokens.some(token => token.negated)) continue;
+        entries.push({ raw: serializeTaggedQuery(tokens) });
     }
 
     return entries;

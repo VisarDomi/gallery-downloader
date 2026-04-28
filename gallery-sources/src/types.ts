@@ -41,7 +41,6 @@ export interface Source {
     downloadingMarker: (id: string) => string;
     searchNamespaces: string[];
     checkMatch: (gallery: Gallery, namespace: string, value: string) => boolean;
-    textSearchFields: (keyof Gallery)[];
     facetFields: string[];
     download: {
         tool: string;

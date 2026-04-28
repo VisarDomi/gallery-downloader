@@ -3,6 +3,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import { THUMB_WIDTH, THUMB_HEIGHT, thumbUrl } from '$lib/config.js';
     import type { GalleryListItem } from '$lib/types.js';
+    import type { SearchNamespace } from 'gallery-sources';
     import InfoModal from './InfoModal.svelte';
 
     const emit = appState.log.emit;
@@ -154,17 +155,17 @@
     }
 
     function handleFav() {
-        appState.favorites.toggle(id, appState.searchState.fullQuery, appState.ui.viewMode === 'favorites');
+        appState.favorites.toggle(id, appState.searchState.currentQuery, appState.ui.viewMode === 'favorites');
     }
 
     onDestroy(() => {
         teardownStripObserver();
     });
 
-    function handleSearchFilter(opts: { artist?: string; group?: string; language?: string }) {
+    function handleSearchFilter(token: { namespace: SearchNamespace; value: string }) {
         showInfoModal = false;
         appState.ui.pushView('list');
-        appState.searchState.searchByFilter(opts);
+        appState.searchState.searchToken(token.namespace, token.value);
     }
 
 </script>

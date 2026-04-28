@@ -3,9 +3,8 @@
 
     const searches = $derived(appState.saved.allSearches);
 
-    function handleClick(query: string) {
-        appState.searchState.restoreFromQuery(query);
-        appState.ui.pushView('list');
+    async function handleClick(query: string) {
+        await appState.searchAndPersist(() => appState.searchState.search(query));
     }
 
     function handleDelete(e: Event, query: string) {

@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
 import type { Gallery, ImageDimension } from './types.js';
+import { normalizeSearchValue, parseTaggedQuery, serializeTaggedQuery } from 'gallery-sources';
 
 export interface GalleryListItem {
     gallery_id: number;
@@ -37,54 +38,6 @@ export function reopenDb(): void {
 
 // -- Search --
 
-interface ParsedToken {
-    negated: boolean;
-    namespace: string;
-    value: string;
-}
-
-interface ParsedQuery {
-    tokens: ParsedToken[];
-    freeText: string[];
-}
-
-const KNOWN_NAMESPACES = new Set([
-    'type', 'language', 'tag', 'female', 'male',
-    'artist', 'group', 'series', 'character',
-]);
-
-function parseQuery(rawQuery: string): ParsedQuery {
-    const parts = rawQuery.trim().split(/\s+/).filter(p => p.length > 0);
-    const tokens: ParsedToken[] = [];
-    const freeText: string[] = [];
-
-    for (const part of parts) {
-        let cleanPart = part;
-        let negated = false;
-        if (cleanPart.startsWith('-')) {
-            negated = true;
-            cleanPart = cleanPart.substring(1);
-        }
-
-        if (cleanPart.includes(':')) {
-            const [ns, ...valParts] = cleanPart.split(':');
-            const val = valParts.join(':');
-
-            if (KNOWN_NAMESPACES.has(ns)) {
-                const normalizedVal = val.replace(/_/g, ' ');
-                tokens.push({ negated, namespace: ns, value: normalizedVal });
-                continue;
-            }
-        }
-
-        if (!negated) {
-            freeText.push(part);
-        }
-    }
-
-    return { tokens, freeText };
-}
-
 // Gallery table columns that map directly to a namespace filter
 const GALLERY_COLUMN_NS: Record<string, string> = {
     type: 'type',
@@ -98,7 +51,7 @@ export interface SearchResult {
 }
 
 export function searchGalleries(rawQuery: string, limit: number, offset: number): SearchResult {
-    const { tokens, freeText } = parseQuery(rawQuery);
+    const tokens = parseTaggedQuery(rawQuery);
     const d = getDb();
 
     const whereClauses: string[] = [];
@@ -122,12 +75,6 @@ export function searchGalleries(rawQuery: string, limit: number, offset: number)
         }
     }
 
-    if (freeText.length > 0) {
-        const searchTerm = '%' + freeText.join(' ') + '%';
-        whereClauses.push(`(g.title LIKE ? COLLATE NOCASE OR g.title_jpn LIKE ? COLLATE NOCASE)`);
-        params.push(searchTerm, searchTerm);
-    }
-
     const whereSQL = whereClauses.length > 0 ? 'WHERE ' + whereClauses.join(' AND ') : '';
 
     // Count total
@@ -142,17 +89,7 @@ export function searchGalleries(rawQuery: string, limit: number, offset: number)
         LIMIT ? OFFSET ?
     `).all(...params, limit, offset) as GalleryListItem[];
 
-    // Build normalized query
-    const normalizedParts: string[] = [];
-    tokens.forEach(t => {
-        const prefix = t.negated ? '-' : '';
-        normalizedParts.push(`${prefix}${t.namespace}:${t.value}`);
-    });
-    if (freeText.length > 0) {
-        normalizedParts.push(freeText.join(' '));
-    }
-
-    return { total, normalized: normalizedParts.join(' '), items };
+    return { total, normalized: serializeTaggedQuery(tokens), items };
 }
 
 // -- Gallery Detail --
@@ -274,16 +211,19 @@ function parseArtistsFile(filePath: string): ParsedArtists {
         if (!line || line.startsWith('#')) continue;
 
         if (line.startsWith('language:')) {
-            currentLanguage = line.slice('language:'.length).replace(/_/g, ' ');
+            const tokens = parseTaggedQuery(line);
+            if (tokens.length === 1 && tokens[0].namespace === 'language' && !tokens[0].negated) {
+                currentLanguage = tokens[0].value;
+            }
             continue;
         }
 
         languages.add(currentLanguage);
 
         if (line.startsWith('artist:')) {
-            artists.add(line.slice('artist:'.length).replace(/_/g, ' '));
+            artists.add(normalizeSearchValue(line.slice('artist:'.length)));
         } else if (line.startsWith('group:')) {
-            groups.add(line.slice('group:'.length).replace(/_/g, ' '));
+            groups.add(normalizeSearchValue(line.slice('group:'.length)));
         }
     }
 

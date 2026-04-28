@@ -73,7 +73,11 @@ app.get('/search', (req, res) => {
     const limit = req.query.limit ? Number(req.query.limit) : -1;
     const offset = Number(req.query.offset) || 0;
 
-    res.json(searchGalleries(q, limit, offset));
+    try {
+        res.json(searchGalleries(q, limit, offset));
+    } catch (error) {
+        res.status(400).json({ error: String((error as Error)?.message ?? error) });
+    }
 });
 
 app.get('/gallery/:id', (req, res) => {

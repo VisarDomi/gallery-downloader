@@ -2,6 +2,7 @@ import Database from 'better-sqlite3';
 import fs from 'fs';
 import { loadManifest, type Filters } from './manifest.js';
 import { requestDeletion } from './deletion-client.js';
+import { normalizeSearchValue } from 'gallery-sources';
 
 const DIRECT_NAMESPACES = new Set(['type', 'language']);
 
@@ -55,7 +56,7 @@ function log(message: string) {
 }
 
 function normalizeValue(value: string): string {
-    return value.trim().replace(/_/g, ' ').toLowerCase();
+    return normalizeSearchValue(value);
 }
 
 export function buildFilterPolicy(filters: Filters): FilterPolicy {

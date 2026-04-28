@@ -29,6 +29,11 @@ Example:
 - `gallery-server/filters.txt.example` -> `gallery-server/filters.txt`
 - `gallery-server/queries.txt.example` -> `gallery-server/queries.txt`
 
+Search and manifest queries use Hitomi-style typed tokens with spaces in values, for example
+`female:big breasts female:cheating -tag:anthology`. Free text search is not supported;
+every term must start with a namespace such as `language:`, `artist:`, `group:`, `series:`,
+`character:`, `tag:`, `female:`, or `male:`.
+
 # ocr runtimes
 
 The reader OCR flow now uses repo-owned runtimes and model files.

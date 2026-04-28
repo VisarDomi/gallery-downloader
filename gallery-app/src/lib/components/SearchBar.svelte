@@ -1,23 +1,40 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
+    import { parseTaggedQuery, tokenToQuery } from 'gallery-sources';
 
-    let inputValue = $state(appState.searchState.fullQuery);
-
-    function freeText() {
-        return inputValue.replace(/\b(language|artist|group):\S+/g, '').trim();
-    }
+    let inputValue = $state(appState.searchState.currentQuery);
+    let selectedLanguage = $state('japanese');
+    let selectedArtist = $state('');
+    let selectedGroup = $state('');
 
     async function handleSubmit(e: Event) {
         e.preventDefault();
-        await appState.searchAndPersist(() => appState.searchState.restoreFromQuery(inputValue));
+        await appState.searchAndPersist(() => appState.searchState.search(inputValue));
     }
 
     function handleFilterChange() {
-        appState.searchAndPersist(() => appState.searchState.search(freeText()));
+        const parts: string[] = [];
+        if (selectedLanguage) parts.push(tokenToQuery('language', selectedLanguage));
+        if (selectedArtist) parts.push(tokenToQuery('artist', selectedArtist));
+        if (selectedGroup) parts.push(tokenToQuery('group', selectedGroup));
+        appState.searchAndPersist(() => appState.searchState.search(parts.join(' ')));
+    }
+
+    function syncDropdownsFromQuery(query: string) {
+        try {
+            const tokens = parseTaggedQuery(query).filter((token) => !token.negated);
+            selectedLanguage = tokens.find((token) => token.namespace === 'language')?.value ?? '';
+            selectedArtist = tokens.find((token) => token.namespace === 'artist')?.value ?? '';
+            selectedGroup = tokens.find((token) => token.namespace === 'group')?.value ?? '';
+        } catch {
+            selectedLanguage = '';
+            selectedArtist = '';
+            selectedGroup = '';
+        }
     }
 
     function handleSave() {
-        appState.saved.save(appState.searchState.fullQuery);
+        appState.saved.save(appState.searchState.currentQuery);
         appState.toast.show('Search saved');
     }
 
@@ -39,7 +56,8 @@
 
     $effect(() => {
         if (!appState.searchState.isLoading) {
-            inputValue = appState.searchState.fullQuery;
+            inputValue = appState.searchState.currentQuery;
+            syncDropdownsFromQuery(appState.searchState.currentQuery);
         }
     });
 
@@ -60,7 +78,7 @@
 
     <div class="filter-row">
         <select
-            bind:value={appState.searchState.selectedLanguage}
+            bind:value={selectedLanguage}
             onchange={handleFilterChange}
         >
             <option value="">Any Language</option>
@@ -69,8 +87,8 @@
             {/each}
         </select>
         <select
-            bind:value={appState.searchState.selectedArtist}
-            onchange={() => { appState.searchState.selectedGroup = ''; handleFilterChange(); }}
+            bind:value={selectedArtist}
+            onchange={() => { selectedGroup = ''; handleFilterChange(); }}
         >
             <option value="">Any Artist</option>
             {#each appState.searchState.availableArtists as [artist, count]}
@@ -78,8 +96,8 @@
             {/each}
         </select>
         <select
-            bind:value={appState.searchState.selectedGroup}
-            onchange={() => { appState.searchState.selectedArtist = ''; handleFilterChange(); }}
+            bind:value={selectedGroup}
+            onchange={() => { selectedArtist = ''; handleFilterChange(); }}
         >
             <option value="">Any Group</option>
             {#each appState.searchState.availableGroups as [group, count]}

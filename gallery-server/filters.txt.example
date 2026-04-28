@@ -5,5 +5,5 @@ language:japanese
 # Excluded tags — subtracted from both artist and query results
 -tag:anthology
 -tag:animated
--female:mind_control
--male:mind_break
+-female:mind control
+-male:mind break

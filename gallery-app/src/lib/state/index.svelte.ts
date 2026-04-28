@@ -131,7 +131,7 @@ class AppState {
         const query = this.favorites.getQuery(galleryId);
         if (!query) return;
 
-        await this.searchState.restoreFromQuery(query);
+        await this.searchState.search(query);
 
         const idx = this.searchState.allGalleries.findIndex(g => g.gallery_id === galleryId);
         if (idx >= 0) {
@@ -171,7 +171,7 @@ class AppState {
             viewMode: this.ui.viewMode,
             viewStack: this.ui.viewStack,
             activeGalleryId: this.reader.activeGallery?.gallery_id,
-            searchQuery: this.searchState.fullQuery || undefined,
+            searchQuery: this.searchState.currentQuery || undefined,
             searchPage: this.searchState.currentPage || undefined,
             favoritesPage: this.favorites.currentPage || undefined,
             listScroll: document.getElementById('view-list')?.scrollTop || undefined,
@@ -197,12 +197,12 @@ class AppState {
 
         // Restore search if we had one
         if (snap.searchQuery) {
-            await this.searchState.restoreFromQuery(snap.searchQuery);
+            await this.searchState.search(snap.searchQuery);
             if (snap.searchPage) {
                 this.searchState.currentPage = snap.searchPage;
             }
         } else {
-            await this.searchState.search('');
+            await this.searchState.search(this.searchState.currentQuery);
         }
 
         // Restore view based on saved mode

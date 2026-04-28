@@ -44,6 +44,10 @@ export interface OcrLookupResponse {
 
 export async function search(query: string = ''): Promise<SearchResponse> {
     const res = await fetch(API.SEARCH(query));
+    if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: 'Unknown error' }));
+        throw new Error(err.error || `HTTP ${res.status}`);
+    }
     const data = await res.json();
 
     if (!Array.isArray(data.items)) {
