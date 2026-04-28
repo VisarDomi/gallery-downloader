@@ -304,7 +304,7 @@ export class ReaderState {
 
     /** Silently scroll the thumbnail strip in the hidden back view to match current page. */
     syncStripScroll(galleryId: number, pageIndex: number) {
-        const rawTarget = pageIndex * THUMB_WIDTH;
+        const rawTarget = pageIndex * THUMB_WIDTH + THUMB_WIDTH / 2;
         this.ui.stripScrolls[galleryId] = rawTarget;
 
         const backView = this.ui.peekBack();
@@ -315,7 +315,7 @@ export class ReaderState {
         const row = container?.querySelector(`#gallery-${galleryId}`) as HTMLElement | null;
         const strip = row?.querySelector('.row-strip') as HTMLElement;
         if (strip) {
-            const centered = rawTarget - (strip.clientWidth / 2) + (THUMB_WIDTH / 2);
+            const centered = rawTarget - (strip.clientWidth / 2);
             strip.scrollLeft = Math.max(0, centered);
         }
     }

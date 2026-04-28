@@ -55,16 +55,19 @@
     function handleReaderScroll(viewReader: HTMLElement, s: ReaderSession) {
         if (s.isDropped || suppressSave) return;
 
-        const scrollTop = viewReader.scrollTop;
+        const viewportCenter = viewReader.scrollTop + viewReader.clientHeight / 2;
         let idx = 0;
         for (let i = 0; i < pageElements.length; i++) {
             const el = pageElements[i];
             if (!el) continue;
-            if (el.offsetTop + el.offsetHeight > scrollTop) { idx = i; break; }
+            if (el.offsetTop <= viewportCenter && el.offsetTop + el.offsetHeight > viewportCenter) {
+                idx = i;
+                break;
+            }
         }
         const el = pageElements[idx];
         const fraction = el
-            ? Math.max(0, Math.min(1, (scrollTop - el.offsetTop) / el.offsetHeight))
+            ? Math.max(0, Math.min(1, (viewportCenter - el.offsetTop) / el.offsetHeight))
             : 0;
         appState.reader.saveProgress(s.gallery.gallery_id, { pageIndex: idx, fraction });
     }
@@ -129,18 +132,21 @@
         }
         scheduleNext();
 
-        // Scroll handler for progress tracking — throttle via rAF
-        let scrollTimer: ReturnType<typeof setTimeout> | undefined;
+        // Scroll handler for progress tracking. Page-index ownership updates on
+        // rAF so the hidden back strip can stay ready while IDB writes remain
+        // debounced inside ReaderState.
+        let scrollRaf: number | undefined;
         const onScroll = () => {
-            clearTimeout(scrollTimer);
-            scrollTimer = setTimeout(() => {
+            if (scrollRaf != null) return;
+            scrollRaf = requestAnimationFrame(() => {
+                scrollRaf = undefined;
                 handleReaderScroll(viewReader!, s);
-            }, 500);
+            });
         };
         viewReader?.addEventListener('scroll', onScroll, { passive: true });
         s.setScrollCleanup(() => {
             viewReader?.removeEventListener('scroll', onScroll);
-            clearTimeout(scrollTimer);
+            if (scrollRaf != null) cancelAnimationFrame(scrollRaf);
         });
 
         // Scroll to start position within the reader's own scroll container

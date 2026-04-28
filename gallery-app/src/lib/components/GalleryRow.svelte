@@ -29,6 +29,7 @@
 
     const isFav = $derived(appState.favorites.favoriteIds.has(id));
     const progressIndex = $derived(appState.reader.getProgressIndex(id));
+    const activeReaderGalleryId = $derived(appState.reader.activeGallery?.gallery_id ?? null);
     const savedQuery = $derived(appState.favorites.favoriteQueries[id]);
 
     // Track which thumbnails have been loaded (src set)
@@ -46,6 +47,17 @@
         const imgs = stripContainer?.querySelectorAll<HTMLImageElement>('img');
         if (imgs) for (const img of imgs) img.removeAttribute('src');
         loadedThumbs.clear();
+    }
+
+    function prewarmThumbWindow(centerIdx: number) {
+        if (!stripContainer || thumbCount === 0) return;
+        const imgs = stripContainer.querySelectorAll<HTMLImageElement>('img');
+        const start = Math.max(0, centerIdx - 2);
+        const end = Math.min(thumbCount - 1, centerIdx + 2);
+        for (let i = start; i <= end; i++) {
+            const img = imgs[i];
+            if (img) loadThumb(img, i);
+        }
     }
 
     function setupStripObserver() {
@@ -115,13 +127,18 @@
         };
     });
 
+    $effect(() => {
+        if (tier !== 'back' || activeReaderGalleryId !== id) return;
+        prewarmThumbWindow(progressIndex);
+    });
+
     // Restore strip scroll position on mount
     onMount(() => {
         const rawTarget = appState.ui.stripScrolls[id];
         if (rawTarget && stripContainer) {
             requestAnimationFrame(() => {
                 if (stripContainer) {
-                    const centered = rawTarget - (stripContainer.clientWidth / 2) + (THUMB_WIDTH / 2);
+                    const centered = rawTarget - (stripContainer.clientWidth / 2);
                     stripContainer.scrollLeft = Math.max(0, centered);
                 }
             });
