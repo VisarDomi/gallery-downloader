@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-from paddlevl_lookup import lookup_viewport_payload
+from paddlevl_lookup import ensure_llama_server, lookup_viewport_payload
 
 
 def write_message(payload: dict) -> None:
@@ -20,6 +20,19 @@ def main() -> int:
             continue
         try:
             command = json.loads(line)
+            if command.get("action") == "warm":
+                ensure_llama_server()
+                write_message({
+                    "ok": True,
+                    "result": {
+                        "text": "",
+                        "lines": [],
+                        "warnings": [],
+                        "elapsedMs": 0,
+                        "profile": {"mode": "warm"},
+                    },
+                })
+                continue
             media_root = Path(command["mediaRoot"]).resolve()
             request_path = Path(command["requestPath"])
             image_path_value = command.get("imagePath")

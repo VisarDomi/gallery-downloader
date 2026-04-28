@@ -57,8 +57,9 @@ interface OcrViewportRequest {
 }
 
 interface OcrWorkerCommand {
-    mediaRoot: string;
-    requestPath: string;
+    action?: 'warm';
+    mediaRoot?: string;
+    requestPath?: string;
     imagePath?: string;
 }
 
@@ -141,7 +142,6 @@ class OcrWorker {
     private rl: ReturnType<typeof createInterface> | null = null;
     private pending: { resolve: (result: OcrLookupResult) => void; reject: (error: Error) => void } | null = null;
     private queue: Promise<unknown> = Promise.resolve();
-    private idleTimer: NodeJS.Timeout | null = null;
 
     constructor(
         private readonly pythonPath: string,
@@ -200,48 +200,45 @@ class OcrWorker {
         console.log(`[OCR] ${this.name} worker started`);
     }
 
-    private scheduleIdleStop() {
-        if (this.idleTimer) clearTimeout(this.idleTimer);
-        this.idleTimer = setTimeout(() => this.stop(), CONFIG.OCR_WARM_IDLE_MS);
+    private sendCommand(command: OcrWorkerCommand): Promise<OcrLookupResult> {
+        return new Promise<OcrLookupResult>((resolve, reject) => {
+            if (!this.process) {
+                reject(new Error('OCR worker is not running'));
+                return;
+            }
+            if (this.pending) {
+                reject(new Error('OCR worker received overlapping request'));
+                return;
+            }
+            this.pending = { resolve, reject };
+            this.process.stdin.write(`${JSON.stringify(command)}\n`, 'utf8', (error) => {
+                if (error) {
+                    const pending = this.pending;
+                    this.pending = null;
+                    pending?.reject(error);
+                }
+            });
+        });
     }
 
-    private stop() {
-        if (this.idleTimer) {
-            clearTimeout(this.idleTimer);
-            this.idleTimer = null;
-        }
-        if (this.process) {
-            console.log(`[OCR] ${this.name} worker stopped after idle timeout`);
-            this.process.kill();
-            this.process = null;
-        }
-        this.rl?.close();
-        this.rl = null;
+    warm(): Promise<unknown> {
+        const warmPromise = this.queue.then(async () => {
+            this.ensureProcess();
+            if (this.name === 'paddle-vl') {
+                await this.sendCommand({ action: 'warm' });
+            }
+            console.log(`[OCR] ${this.name} worker warmed`);
+        });
+        this.queue = warmPromise.catch((error) => {
+            console.error(`[OCR] ${this.name} warmup failed`, error);
+        });
+        return warmPromise;
     }
 
     run(command: OcrWorkerCommand): Promise<OcrLookupResult> {
         const runPromise = this.queue.then(async () => {
             this.ensureProcess();
-            this.scheduleIdleStop();
-
-            return new Promise<OcrLookupResult>((resolve, reject) => {
-                if (!this.process) {
-                    reject(new Error('OCR worker is not running'));
-                    return;
-                }
-                if (this.pending) {
-                    reject(new Error('OCR worker received overlapping request'));
-                    return;
-                }
-                this.pending = { resolve, reject };
-                this.process.stdin.write(`${JSON.stringify(command)}\n`, 'utf8', (error) => {
-                    if (error) {
-                        const pending = this.pending;
-                        this.pending = null;
-                        pending?.reject(error);
-                    }
-                });
-            });
+            return this.sendCommand(command);
         });
 
         this.queue = runPromise.catch(() => undefined);
@@ -254,6 +251,17 @@ const OCR_WORKERS: Record<OcrBackendId, OcrWorker> = {
     'manga-ocr': new OcrWorker(CONFIG.OCR_MANGA_PYTHON, CONFIG.OCR_MANGA_WORKER, 'manga-ocr'),
     'paddle-vl': new OcrWorker(CONFIG.OCR_PYTHON, CONFIG.OCR_PADDLE_VL_WORKER, 'paddle-vl'),
 };
+
+export function scheduleDefaultOcrWarmup() {
+    const delayMs = Number.isFinite(CONFIG.OCR_PRELOAD_DELAY_MS) && CONFIG.OCR_PRELOAD_DELAY_MS >= 0
+        ? CONFIG.OCR_PRELOAD_DELAY_MS
+        : 5 * 60 * 1000;
+    const timer = setTimeout(() => {
+        console.log(`[OCR] preloading default backend paddle-vl after ${delayMs}ms`);
+        OCR_WORKERS['paddle-vl'].warm();
+    }, delayMs);
+    timer.unref();
+}
 
 function buildRunArtifacts(debugPaths: ReturnType<typeof buildDebugPathsForBackend> | null) {
     if (!debugPaths) return undefined;

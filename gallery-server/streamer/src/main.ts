@@ -8,7 +8,7 @@ import { CONFIG } from './config.js';
 import { createHttpsServer } from './ssl.js';
 import { handleBatchRequest } from './batch.js';
 import { handleDeleteRequest } from './delete.js';
-import { handleOcrBackendsRequest, handleOcrLookupRequest } from './ocr.js';
+import { handleOcrBackendsRequest, handleOcrLookupRequest, scheduleDefaultOcrWarmup } from './ocr.js';
 
 const app = express();
 
@@ -91,6 +91,7 @@ try {
         console.log(`Streamer running on port ${CONFIG.PORT}`);
         console.log(`Serving media: ${CONFIG.MEDIA_ROOT}`);
         console.log(`Serving frontend: ${CONFIG.FRONTEND_BUILD_PATH}`);
+        scheduleDefaultOcrWarmup();
 
         // Log Network Interfaces
         const networkInterfaces = os.networkInterfaces();

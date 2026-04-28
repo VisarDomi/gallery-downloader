@@ -20,6 +20,6 @@ export const CONFIG = {
     OCR_WORKER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'ocr_worker.py'),
     OCR_MANGA_WORKER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'ocr_worker_manga.py'),
     OCR_PADDLE_VL_WORKER: path.resolve(STREAMER_ROOT, 'src', 'ocr', 'ocr_worker_paddlevl.py'),
-    OCR_WARM_IDLE_MS: 60 * 60 * 1000,
+    OCR_PRELOAD_DELAY_MS: Number(process.env.GALLERY_OCR_PRELOAD_DELAY_MS ?? 5 * 60 * 1000),
     OCR_DEBUG_ARTIFACTS: process.env.GALLERY_OCR_DEBUG_ARTIFACTS === '1',
 };
