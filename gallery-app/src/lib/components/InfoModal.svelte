@@ -12,15 +12,25 @@
     } = $props();
 
     let gallery = $state<Gallery | null>(null);
+    let modalContent: HTMLDivElement | undefined;
     let deleting = $state(false);
 
     const title = $derived(gallery?.title || 'No Title');
 
     onMount(() => {
-        api.getGallery(galleryId).then(g => gallery = g);
+        let cancelled = false;
+        api.getGallery(galleryId).then(g => {
+            requestAnimationFrame(() => {
+                if (!cancelled) gallery = g;
+            });
+        });
         document.body.style.overflow = 'hidden';
+        const node = modalContent;
+        node?.addEventListener('click', handleSearchClick);
         return () => {
+            cancelled = true;
             document.body.style.overflow = '';
+            node?.removeEventListener('click', handleSearchClick);
         };
     });
 
@@ -55,10 +65,21 @@
         }
         return { namespace: 'tag', value: tag };
     }
+
+    function handleSearchClick(e: MouseEvent) {
+        if (!onSearchFilter) return;
+        const target = e.target as HTMLElement | null;
+        const button = target?.closest<HTMLElement>('[data-search-namespace][data-search-value]');
+        if (!button) return;
+        const namespace = button.dataset.searchNamespace as SearchNamespace | undefined;
+        const value = button.dataset.searchValue;
+        if (!namespace || !value) return;
+        onSearchFilter({ namespace, value });
+    }
 </script>
 
 <div class="modal-backdrop" role="button" tabindex="-1" onclick={handleBackdropClick} onkeydown={(e) => { if (e.key === 'Escape') onClose(); }}>
-    <div class="modal-content">
+    <div class="modal-content" bind:this={modalContent}>
         {#if gallery}
             <div class="modal-header">
                 {#if gallery.title_jpn}
@@ -75,7 +96,7 @@
                                 {#if i > 0}, {/if}
                                 <span class="modal-value-entry">
                                     {#if onSearchFilter}
-                                        <button class="modal-value-link" onclick={() => onSearchFilter({ namespace: 'artist', value: artist })}>{artist}</button>
+                                        <button class="modal-value-link" data-search-namespace="artist" data-search-value={artist}>{artist}</button>
                                     {:else}
                                         {artist}
                                     {/if}
@@ -99,7 +120,7 @@
                                 {#if i > 0}, {/if}
                                 <span class="modal-value-entry">
                                     {#if onSearchFilter}
-                                        <button class="modal-value-link" onclick={() => onSearchFilter({ namespace: 'group', value: group })}>{group}</button>
+                                        <button class="modal-value-link" data-search-namespace="group" data-search-value={group}>{group}</button>
                                     {:else}
                                         {group}
                                     {/if}
@@ -122,7 +143,7 @@
                             {#each gallery.parody as series, i}
                                 {#if i > 0}, {/if}
                                 {#if onSearchFilter}
-                                    <button class="modal-value-link" onclick={() => onSearchFilter({ namespace: 'series', value: series })}>{series}</button>
+                                    <button class="modal-value-link" data-search-namespace="series" data-search-value={series}>{series}</button>
                                 {:else}
                                     {series}
                                 {/if}
@@ -135,21 +156,9 @@
                         <span class="modal-label">Type</span>
                         <span class="modal-value">
                             {#if onSearchFilter}
-                                <button class="modal-value-link" onclick={() => onSearchFilter({ namespace: 'type', value: gallery!.type })}>{gallery.type}</button>
+                                <button class="modal-value-link" data-search-namespace="type" data-search-value={gallery.type}>{gallery.type}</button>
                             {:else}
                                 {gallery.type}
-                            {/if}
-                        </span>
-                    </div>
-                {/if}
-                {#if gallery.language}
-                    <div class="modal-row">
-                        <span class="modal-label">Language</span>
-                        <span class="modal-value">
-                            {#if onSearchFilter}
-                                <button class="modal-value-link" onclick={() => onSearchFilter({ namespace: 'language', value: gallery!.language })}>{gallery.language}</button>
-                            {:else}
-                                {gallery.language}
                             {/if}
                         </span>
                     </div>
@@ -161,7 +170,7 @@
                             {#each gallery.characters as character, i}
                                 {#if i > 0}, {/if}
                                 {#if onSearchFilter}
-                                    <button class="modal-value-link" onclick={() => onSearchFilter({ namespace: 'character', value: character })}>{character}</button>
+                                    <button class="modal-value-link" data-search-namespace="character" data-search-value={character}>{character}</button>
                                 {:else}
                                     {character}
                                 {/if}
@@ -180,8 +189,9 @@
                         <div class="modal-label" style="margin-bottom:6px">Tags</div>
                         <div class="tag-cloud">
                             {#each gallery.tags as tag}
+                                {@const token = tagToken(tag)}
                                 {#if onSearchFilter}
-                                    <button class="tag-chip" onclick={() => onSearchFilter(tagToken(tag))}>{tag}</button>
+                                    <button class="tag-chip" data-search-namespace={token.namespace} data-search-value={token.value}>{tag}</button>
                                 {:else}
                                     <span class="tag-chip">{tag}</span>
                                 {/if}

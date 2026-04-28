@@ -3,7 +3,6 @@
     import { parseTaggedQuery, tokenToQuery } from 'gallery-sources';
 
     let inputValue = $state(appState.searchState.currentQuery);
-    let selectedLanguage = $state('japanese');
     let selectedArtist = $state('');
     let selectedGroup = $state('');
 
@@ -14,7 +13,6 @@
 
     function handleFilterChange() {
         const parts: string[] = [];
-        if (selectedLanguage) parts.push(tokenToQuery('language', selectedLanguage));
         if (selectedArtist) parts.push(tokenToQuery('artist', selectedArtist));
         if (selectedGroup) parts.push(tokenToQuery('group', selectedGroup));
         appState.searchAndPersist(() => appState.searchState.search(parts.join(' ')));
@@ -23,11 +21,9 @@
     function syncDropdownsFromQuery(query: string) {
         try {
             const tokens = parseTaggedQuery(query).filter((token) => !token.negated);
-            selectedLanguage = tokens.find((token) => token.namespace === 'language')?.value ?? '';
             selectedArtist = tokens.find((token) => token.namespace === 'artist')?.value ?? '';
             selectedGroup = tokens.find((token) => token.namespace === 'group')?.value ?? '';
         } catch {
-            selectedLanguage = '';
             selectedArtist = '';
             selectedGroup = '';
         }
@@ -77,15 +73,6 @@
     </form>
 
     <div class="filter-row">
-        <select
-            bind:value={selectedLanguage}
-            onchange={handleFilterChange}
-        >
-            <option value="">Any Language</option>
-            {#each appState.searchState.availableLanguages as [lang, count]}
-                <option value={lang}>{lang} ({count})</option>
-            {/each}
-        </select>
         <select
             bind:value={selectedArtist}
             onchange={() => { selectedGroup = ''; handleFilterChange(); }}

@@ -2,16 +2,15 @@ import { PAGE_SIZE } from '../config.js';
 import type { GalleryListItem } from '../types.js';
 import type { LogEmit } from '../services/LogService.js';
 import * as api from '../services/api.js';
-import { normalizeTaggedQuery, tokenToQuery, type SearchNamespace } from 'gallery-sources';
+import { normalizeTaggedQuery, parseTaggedQuery, serializeTaggedQuery, tokenToQuery, type SearchNamespace } from 'gallery-sources';
 
 export class SearchState {
     private emit: LogEmit;
     allGalleries = $state<GalleryListItem[]>([]);
-    currentQuery = $state('language:japanese');
+    currentQuery = $state('');
     currentPage = $state(0);
     isLoading = $state(false);
 
-    availableLanguages = $state<[string, number][]>([]);
     availableArtists = $state<[string, number][]>([]);
     availableGroups = $state<[string, number][]>([]);
 
@@ -31,7 +30,6 @@ export class SearchState {
     async loadFilterOptions() {
         try {
             const data = await api.facets();
-            this.availableLanguages = data.languages;
             this.availableArtists = data.artists;
             this.availableGroups = data.groups;
         } catch (e) {
@@ -44,9 +42,9 @@ export class SearchState {
         this.currentPage = 0;
 
         try {
-            const normalizedQuery = normalizeTaggedQuery(query);
+            const normalizedQuery = this.normalizeUiQuery(query);
             this.currentQuery = normalizedQuery;
-            const data = await api.search(normalizedQuery);
+            const data = await api.search(this.toApiQuery(normalizedQuery));
             this.allGalleries = data.items;
         } catch (e) {
             this.emit('search-failed', { error: String(e) });
@@ -57,7 +55,17 @@ export class SearchState {
     }
 
     async searchToken(namespace: SearchNamespace, value: string) {
+        if (namespace === 'language') return;
         await this.search(tokenToQuery(namespace, value));
+    }
+
+    private normalizeUiQuery(query: string): string {
+        const tokens = parseTaggedQuery(query).filter((token) => token.namespace !== 'language');
+        return serializeTaggedQuery(tokens);
+    }
+
+    private toApiQuery(uiQuery: string): string {
+        return normalizeTaggedQuery(['language:japanese', uiQuery].filter(Boolean).join(' '));
     }
 
     removeGalleries(ids: Set<number>) {
