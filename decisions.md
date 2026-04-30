@@ -22,7 +22,7 @@
 
 **Query format:** Search terms are namespace-delimited tokens, not whitespace-delimited words. Values use Hitomi/gallery-dl text directly: lowercase with spaces, no underscores and no quotes. A value continues until the next `namespace:` or `-namespace:` marker, so `female:big breasts female:cheating` is two tokens. Free text search is intentionally unsupported.
 
-**sync.py:** Diagnostic-only tool (no `--queue`). Does NOT apply filter policy. All queuing goes through the TS sync endpoint (`POST /sync` on port 11558). The systemd timer calls `curl -sk -X POST https://localhost:11558/sync`.
+**sync.py:** Diagnostic-only dry-run tool (no `--queue`). It reads the manifest and accepts `--extra-query <query>` for hypothetical query checks without writing to watched manifest files. Do not edit `queries.txt` just to test a query while the downloader service is running; manifest changes trigger the real TS sync path. All queuing goes through the TS sync endpoint (`POST /sync` on port 11558). The systemd timer calls `curl -sk -X POST https://localhost:11558/sync`.
 
 **Implication for removal:** A gallery can only be considered an orphan if it's local, matched by the removed entry, and no longer wanted by ANY remaining entry in EITHER file (with filters applied). Remove planning is evaluated against the local index DB, not against Hitomi's remote nozomi index.
 
@@ -85,6 +85,14 @@
 **Status/logging:** Policy cleanup logs `start`, `deleting N policy violations`, and `done/error` under `[policy-cleanup]`. It runs after sync and once on downloader startup, and can be triggered manually through `POST /policy-cleanup`. `GET /policy-cleanup/status` exposes the current phase and counts.
 
 **Queue hygiene:** After resolving the current manifest, sync prunes queued gallery URLs whose IDs are no longer wanted. This handles queues restored from before a filter change. An already-active download is allowed to finish and is then checked by the post-download validator.
+
+## Sync preflight policy gate
+
+**Decision:** Sync-discovered downloads must be classified before they enter the queue. The resolver produces wanted IDs, the diff engine produces candidates, the metadata fetcher reads Hitomi gallery metadata, `policy.ts` classifies each candidate as allowed or rejected, and the queue accepts only `AllowedGallery` jobs.
+
+**Why:** Hitomi's Nozomi indexes can claim an ID belongs to `language:japanese` while the gallery metadata says another language. Downloading first and deleting after wastes bandwidth and disk churn. The queue should own execution order, not admissibility policy. Invalid sync work is rejected before `gallery-dl` starts.
+
+**Backstop:** The post-download validator remains as a defensive invariant check for stale metadata, manual queue paths, or upstream changes.
 
 ## Post-download validation: language check
 

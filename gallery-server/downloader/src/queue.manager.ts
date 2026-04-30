@@ -5,6 +5,7 @@ import { hitomi } from 'gallery-sources';
 import { CONFIG } from './config.js';
 import { socketService } from './socket.service.js';
 import { stripAnsi, getUniqueItems } from './utils.js';
+import type { AllowedGallery } from './gallery-job.js';
 
 const SOURCE_DIR = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
 const QUEUE_FILE = path.join(SOURCE_DIR, '.queue-backup.json');
@@ -272,19 +273,18 @@ class QueueManager {
     }
 
     /**
-     * Append gallery IDs to the queue without replacing existing items.
-     * Converts IDs to hitomi URLs. Deduplicates against current queue + active download.
+     * Append policy-approved galleries to the queue without replacing existing items.
+     * Sync-owned work must pass through policy classification before reaching this API.
      */
-    public appendQueue(galleryIds: number[]) {
+    public appendAllowed(galleries: AllowedGallery[]) {
         const existingUrls = new Set(this.downloadQueue);
         if (this.currentUrl) existingUrls.add(this.currentUrl);
 
         let added = 0;
-        for (const id of galleryIds) {
-            const url = `https://hitomi.la/galleries/${id}.html`;
-            if (!existingUrls.has(url)) {
-                this.downloadQueue.push(url);
-                existingUrls.add(url);
+        for (const gallery of galleries) {
+            if (!existingUrls.has(gallery.url)) {
+                this.downloadQueue.push(gallery.url);
+                existingUrls.add(gallery.url);
                 added++;
             }
         }

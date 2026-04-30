@@ -3,6 +3,7 @@ import fs from 'fs';
 import { loadManifest, type Filters } from './manifest.js';
 import { requestDeletion } from './deletion-client.js';
 import { normalizeSearchValue } from 'gallery-sources';
+import type { AllowedGallery, CandidateGallery, ClassifiedGallery } from './gallery-job.js';
 
 const DIRECT_NAMESPACES = new Set(['type', 'language']);
 
@@ -135,6 +136,30 @@ export function validateGalleryInfo(info: unknown, policy: FilterPolicy): Policy
     }
 
     return { kind: 'allow' };
+}
+
+export function classifyCandidateGallery(
+    candidate: CandidateGallery,
+    info: unknown,
+    policy: FilterPolicy,
+): ClassifiedGallery {
+    const decision = validateGalleryInfo(info, policy);
+    if (decision.kind === 'reject') {
+        return {
+            kind: 'rejected',
+            id: candidate.id,
+            url: candidate.url,
+            reason: decision.reason,
+            metadata: info,
+        };
+    }
+
+    return {
+        kind: 'allowed',
+        id: candidate.id,
+        url: candidate.url,
+        metadata: info,
+    } satisfies AllowedGallery;
 }
 
 function findPolicyViolations(indexDbPath: string, policy: FilterPolicy): number[] {

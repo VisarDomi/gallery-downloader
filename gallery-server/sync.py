@@ -12,6 +12,7 @@ This script is for dry-run diagnostics only.
 Usage:
     python3 sync.py                  # dry-run: show what's new
     python3 sync.py --verify         # dry-run verify (show existing gallery count)
+    python3 sync.py --extra-query female:mesugaki
 """
 
 import struct
@@ -19,9 +20,10 @@ import sqlite3
 import sys
 import os
 import urllib.parse
+import urllib.error
 import urllib.request
 import ssl
-from pathlib import Path
+import re
 
 DOMAIN = "gold-usergeneratedcontent.net"
 ROOT = "https://hitomi.la"
@@ -32,6 +34,9 @@ ARTISTS_FILE = os.path.join(SCRIPT_DIR, "artists.txt")
 QUERIES_FILE = os.path.join(SCRIPT_DIR, "queries.txt")
 FILTERS_FILE = os.path.join(SCRIPT_DIR, "filters.txt")
 DEFAULT_LANGUAGE = "japanese"
+NOZOMI_CACHE: dict[tuple[str, str, str], list[int]] = {}
+NOZOMI_CACHE_HITS = 0
+NOZOMI_FETCHES = 0
 
 
 def decode_nozomi(data: bytes) -> list[int]:
@@ -48,25 +53,51 @@ def http_get(url: str) -> bytes:
         "User-Agent": "Mozilla/5.0",
     })
     ctx = ssl.create_default_context()
-    with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
-        return resp.read()
+    try:
+        with urllib.request.urlopen(req, context=ctx, timeout=30) as resp:
+            return resp.read()
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            return b""
+        raise
 
 
 def fetch_nozomi(entry_type: str, name: str, language: str) -> list[int]:
     """Fetch gallery IDs from a single language-specific nozomi index. 1 HTTP request."""
-    name_encoded = urllib.parse.quote(name.replace('_', ' '))
+    global NOZOMI_CACHE_HITS, NOZOMI_FETCHES
+    name = normalize_search_value(name)
+    language = normalize_search_value(language)
+    cache_key = (entry_type, name, language)
+    cached = NOZOMI_CACHE.get(cache_key)
+    if cached is not None:
+        NOZOMI_CACHE_HITS += 1
+        return cached
 
+    if entry_type == "language":
+        url = f"https://ltn.{DOMAIN}/n/index-{urllib.parse.quote(name)}.nozomi"
+        ids = decode_nozomi(http_get(url))
+        NOZOMI_FETCHES += 1
+        NOZOMI_CACHE[cache_key] = ids
+        return ids
+
+    name_encoded = urllib.parse.quote(name)
     if entry_type in ("female", "male"):
-        url = f"https://ltn.{DOMAIN}/tag/{entry_type}%3A{name_encoded}-{language}.nozomi"
+        full_tag = urllib.parse.quote(f"{entry_type}:{name}")
+        url = f"https://ltn.{DOMAIN}/n/tag/{full_tag}-{urllib.parse.quote(language)}.nozomi"
+    elif entry_type == "tag":
+        url = f"https://ltn.{DOMAIN}/n/tag/{name_encoded}-{urllib.parse.quote(language)}.nozomi"
     else:
-        url = f"https://ltn.{DOMAIN}/{entry_type}/{name_encoded}-{language}.nozomi"
+        url = f"https://ltn.{DOMAIN}/n/{entry_type}/{name_encoded}-{urllib.parse.quote(language)}.nozomi"
 
-    return decode_nozomi(http_get(url))
+    ids = decode_nozomi(http_get(url))
+    NOZOMI_FETCHES += 1
+    NOZOMI_CACHE[cache_key] = ids
+    return ids
 
 
 def hitomi_url(entry_type: str, name: str, language: str) -> str:
     """Construct the hitomi.la browsable URL for this entry."""
-    return f"{ROOT}/{entry_type}/{name}-{language}.html"
+    return f"{ROOT}/{entry_type}/{urllib.parse.quote(name)}-{language}.html"
 
 
 def gallery_url(gallery_id: int) -> str:
@@ -88,13 +119,20 @@ def load_filters(filepath: str) -> tuple[str, list[tuple[str, str]]]:
             line = raw.strip()
             if not line or line.startswith("#"):
                 continue
-            if line.startswith("language:"):
-                language = line[len("language:"):].replace("_", " ")
+            try:
+                tokens = parse_tagged_query(line)
+            except ValueError:
                 continue
-            if line.startswith("-") and ":" in line[1:]:
-                token = line[1:]
-                ns, _, val = token.partition(":")
-                negatives.append((ns, val.replace("_", " ")))
+
+            if len(tokens) != 1:
+                continue
+
+            token = tokens[0]
+            if token.namespace == "language" and not token.negated:
+                language = token.value
+                continue
+            if token.negated:
+                negatives.append((token.namespace, token.value))
 
     return language, negatives
 
@@ -117,33 +155,60 @@ class QueryToken:
 
 
 KNOWN_NAMESPACES = {"type", "language", "tag", "female", "male", "artist", "group", "series", "character"}
+MARKER_PATTERN = re.compile(r"(^|\s)(-?)(" + "|".join(KNOWN_NAMESPACES) + r"):", re.IGNORECASE)
+
+
+def normalize_search_value(value: str) -> str:
+    return re.sub(r"\s+", " ", value.strip()).lower()
+
+
+def parse_tagged_query(raw_query: str) -> list[QueryToken]:
+    raw = raw_query.strip()
+    if not raw:
+        return []
+
+    markers = list(MARKER_PATTERN.finditer(raw))
+    if not markers:
+        raise ValueError("Search must use namespace:value tokens")
+
+    prefix = raw[:markers[0].start()].strip()
+    if prefix:
+        raise ValueError(f"Invalid text before first token: {prefix}")
+
+    tokens: list[QueryToken] = []
+    for i, marker in enumerate(markers):
+        leading = marker.group(1) or ""
+        token_start = marker.start() + len(leading)
+        value_start = token_start + len(marker.group(0)) - len(leading)
+        value_end = markers[i + 1].start() if i + 1 < len(markers) else len(raw)
+
+        namespace = marker.group(3).lower()
+        value = normalize_search_value(raw[value_start:value_end])
+        if not value:
+            raise ValueError(f"Missing value for {namespace}:")
+
+        unknown_marker = re.search(r"(^|\s)-?([a-z][a-z0-9_-]*):", value, re.IGNORECASE)
+        if unknown_marker and unknown_marker.group(2).lower() not in KNOWN_NAMESPACES:
+            raise ValueError(f"Unknown namespace: {unknown_marker.group(2).lower()}")
+
+        tokens.append(QueryToken(marker.group(2) == "-", namespace, value))
+
+    return tokens
 
 
 def parse_query(raw: str, language: str, negatives: list[tuple[str, str]]) -> tuple[list[QueryToken], str]:
     """Parse a query string + merge filters. Returns (tokens, language)."""
-    parts = raw.strip().split()
     seen: set[QueryToken] = set()
     tokens: list[QueryToken] = []
 
-    for part in parts:
-        negated = part.startswith("-")
-        clean = part[1:] if negated else part
-
-        if ":" not in clean:
-            continue
-
-        ns, _, val = clean.partition(":")
-        if ns not in KNOWN_NAMESPACES:
-            continue
-
-        token = QueryToken(negated, ns, val.replace("_", " "))
+    for token in parse_tagged_query(raw):
         if token not in seen:
             seen.add(token)
             tokens.append(token)
 
     # Merge filter negatives
     for ns, val in negatives:
-        token = QueryToken(True, ns, val)
+        token = QueryToken(True, ns, normalize_search_value(val))
         if token not in seen:
             seen.add(token)
             tokens.append(token)
@@ -238,6 +303,24 @@ def load_lines(filepath: str) -> list[str]:
         return [line.strip() for line in f if line.strip() and not line.startswith("#")]
 
 
+def read_option_values(flag: str) -> list[str]:
+    values: list[str] = []
+    i = 1
+    while i < len(sys.argv):
+        arg = sys.argv[i]
+        if arg == flag:
+            if i + 1 >= len(sys.argv):
+                print(f"ERROR: {flag} needs a value")
+                sys.exit(1)
+            values.append(sys.argv[i + 1])
+            i += 2
+            continue
+        if arg.startswith(flag + "="):
+            values.append(arg[len(flag) + 1:])
+        i += 1
+    return values
+
+
 def main():
     if "--queue" in sys.argv:
         print("ERROR: --queue is removed. Use the TS sync instead:")
@@ -245,10 +328,21 @@ def main():
         sys.exit(1)
 
     do_verify = "--verify" in sys.argv
+    extra_queries = read_option_values("--extra-query")
 
     language, negatives = load_filters(FILTERS_FILE)
     artist_lines = load_lines(ARTISTS_FILE)
     query_lines = load_lines(QUERIES_FILE)
+    for raw in extra_queries:
+        try:
+            tokens = parse_tagged_query(raw)
+        except ValueError as e:
+            print(f"ERROR: bad --extra-query {raw!r}: {e}")
+            sys.exit(1)
+        if not tokens or any(token.negated for token in tokens):
+            print(f"ERROR: --extra-query must contain positive namespace:value tokens only: {raw}")
+            sys.exit(1)
+        query_lines.append(raw)
 
     if not artist_lines and not query_lines:
         print("Both artists.txt and queries.txt are empty or missing.")
@@ -259,6 +353,8 @@ def main():
         mode_parts.append("VERIFY")
 
     print(f"Loaded {len(artist_lines)} artists + {len(query_lines)} queries + {len(negatives)} filters")
+    if extra_queries:
+        print(f"Extra dry-run queries: {len(extra_queries)} (not written to queries.txt)")
     print(f"Language: {language}")
     print(f"Mode: {' + '.join(mode_parts)}")
     print("NOTE: Artist counts are UNFILTERED (no exclusions applied).")
@@ -278,19 +374,18 @@ def main():
         print(f"--- artists.txt ({len(artist_lines)} entries) ---")
 
     for line in artist_lines:
-        parts = line.split()
-        entry_type = None
-        name = None
+        try:
+            tokens = parse_tagged_query(line)
+        except ValueError as e:
+            print(f"  SKIP (bad format): {line} ({e})")
+            continue
 
-        for part in parts:
-            key, _, val = part.partition(":")
-            if key in ("artist", "group"):
-                entry_type = key
-                name = val
-
-        if not entry_type or not name:
+        if len(tokens) != 1 or tokens[0].negated or tokens[0].namespace not in ("artist", "group"):
             print(f"  SKIP (bad format): {line}")
             continue
+
+        entry_type = tokens[0].namespace
+        name = tokens[0].value
 
         label = f"{entry_type}:{name}"
         print(f"[{label}]", end=" ", flush=True)
@@ -349,6 +444,7 @@ def main():
         print(f"\n{len(all_new_urls)} new.")
     else:
         print("\nNothing new.")
+    print(f"Nozomi cache: {NOZOMI_CACHE_HITS} hits, {NOZOMI_FETCHES} network fetches")
     print("To queue downloads, use: curl -k -X POST https://localhost:11558/sync")
 
 

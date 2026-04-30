@@ -12,8 +12,10 @@ import { queueManager } from './queue.manager.js';
 import { runSync, getSyncStatus } from './sync.js';
 import { runRemove, getRemoveStatus, gitCommit } from './remove.js';
 import { loadManifest } from './manifest.js';
-import { buildFilterPolicy, getPolicyCleanupStatus, runPolicyCleanup, validateGalleryInfo } from './policy.js';
+import { buildFilterPolicy, classifyCandidateGallery, getPolicyCleanupStatus, runPolicyCleanup, validateGalleryInfo } from './policy.js';
+import { fetchHitomiGalleryInfo } from './hitomi-metadata.js';
 import { hitomi, parseTaggedQuery, serializeTaggedQuery } from 'gallery-sources';
+import type { RejectedGallery } from './gallery-job.js';
 
 const app = express();
 
@@ -65,20 +67,69 @@ app.get('/status', (_req, res) => {
     res.json(queueManager.getStatus());
 });
 
-app.post('/queue', (req, res) => {
+async function filterAllowedUrls(rawUrls: string[]): Promise<{ allowedUrls: string[]; rejected: RejectedGallery[] }> {
+    const filterPolicy = buildFilterPolicy(loadManifest(FILTERS_PATH, ARTISTS_PATH, QUERIES_PATH).filters);
+    const allowedUrls: string[] = [];
+    const rejected: RejectedGallery[] = [];
+
+    for (const url of rawUrls) {
+        const idText = hitomi.download.parseIdFromUrl(url);
+        if (!idText) {
+            rejected.push({
+                kind: 'rejected',
+                id: 0,
+                url,
+                reason: 'unsupported URL',
+            });
+            continue;
+        }
+
+        const id = Number(idText);
+        const metadata = await fetchHitomiGalleryInfo(id);
+        if (metadata.kind === 'error') {
+            rejected.push({
+                kind: 'rejected',
+                id,
+                url,
+                reason: `metadata preflight failed: ${metadata.error}`,
+            });
+            continue;
+        }
+
+        const classified = classifyCandidateGallery({ kind: 'candidate', id, url }, metadata.info, filterPolicy);
+        if (classified.kind === 'allowed') {
+            allowedUrls.push(url);
+        } else {
+            rejected.push(classified);
+        }
+    }
+
+    for (const item of rejected) {
+        console.log(`[preflight] rejected ${item.url}: ${item.reason}`);
+        socketService.emitLog(`[preflight] rejected ${item.url}: ${item.reason}\n`);
+    }
+
+    return { allowedUrls, rejected };
+}
+
+app.post('/queue', async (req, res) => {
     const rawUrls = (req.body.urls || '').split('\n').filter((u: string) => u.trim() !== '');
-    queueManager.updateQueue(rawUrls);
-    res.json({ status: 'ok' });
+    const filtered = await filterAllowedUrls(rawUrls);
+    queueManager.updateQueue(filtered.allowedUrls);
+    res.json({ status: 'ok', accepted: filtered.allowedUrls.length, rejected: filtered.rejected.length });
 });
 
-app.post('/immediate', (req, res) => {
+app.post('/immediate', async (req, res) => {
     const rawUrls = (req.body.urls || '').split('\n').filter((u: string) => u.trim() !== '');
     if (rawUrls.length === 0) {
         res.json({ status: 'empty' });
         return;
     }
-    queueManager.injectImmediate(rawUrls);
-    res.json({ status: 'ok' });
+    const filtered = await filterAllowedUrls(rawUrls);
+    if (filtered.allowedUrls.length > 0) {
+        queueManager.injectImmediate(filtered.allowedUrls);
+    }
+    res.json({ status: 'ok', accepted: filtered.allowedUrls.length, rejected: filtered.rejected.length });
 });
 
 app.post('/pause', (_req, res) => {

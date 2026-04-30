@@ -6,19 +6,22 @@
  */
 
 import path from 'path';
+import { loadManifest } from './manifest.js';
 import { resolveManifest } from './manifest-resolver.js';
 import { computeDiff } from './diff.js';
 import { queueManager } from './queue.manager.js';
 import { socketService } from './socket.service.js';
 import { CONFIG } from './config.js';
 import { hitomi } from 'gallery-sources';
-import { runPolicyCleanup, type PolicyCleanupStatus } from './policy.js';
+import { buildFilterPolicy, classifyCandidateGallery, runPolicyCleanup, type PolicyCleanupStatus } from './policy.js';
+import { candidateFromId, type AllowedGallery, type CandidateGallery, type RejectedGallery } from './gallery-job.js';
+import { fetchHitomiGalleryInfo } from './hitomi-metadata.js';
 
 const GALLERY_ROOT = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
 const INDEX_DB_PATH = path.join(CONFIG.WORKING_DIR, 'gallery-dl', 'gallery-index.db');
 
 export interface SyncStatus {
-    phase: 'idle' | 'resolving-artists' | 'resolving-queries' | 'diffing' | 'done';
+    phase: 'idle' | 'resolving-artists' | 'resolving-queries' | 'diffing' | 'classifying' | 'done';
     artistsResolved: number;
     artistsTotal: number;
     queriesResolved: number;
@@ -27,6 +30,9 @@ export interface SyncStatus {
     newCount: number;
     resumeCount: number;
     alreadyLocalCount: number;
+    allowedCount: number;
+    rejectedCount: number;
+    metadataErrorCount: number;
     cleanup: PolicyCleanupStatus;
     errors: string[];
 }
@@ -35,7 +41,7 @@ let currentSync: SyncStatus = {
     phase: 'idle',
     artistsResolved: 0, artistsTotal: 0,
     queriesResolved: 0, queriesTotal: 0,
-    wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0,
+    wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0, allowedCount: 0, rejectedCount: 0, metadataErrorCount: 0,
     cleanup: {
         phase: 'idle',
         filterCount: 0,
@@ -58,6 +64,46 @@ function log(msg: string) {
     socketService.emitLog(`[sync] ${msg}\n`);
 }
 
+async function classifyCandidates(
+    candidates: CandidateGallery[],
+    filtersPath: string,
+    artistsPath: string,
+    queriesPath: string,
+): Promise<{ allowed: AllowedGallery[]; rejected: RejectedGallery[]; metadataErrors: number }> {
+    const policy = buildFilterPolicy(loadManifest(filtersPath, artistsPath, queriesPath).filters);
+    const allowed: AllowedGallery[] = [];
+    const rejected: RejectedGallery[] = [];
+    let metadataErrors = 0;
+
+    for (let i = 0; i < candidates.length; i++) {
+        const candidate = candidates[i];
+        const metadata = await fetchHitomiGalleryInfo(candidate.id);
+
+        if (metadata.kind === 'error') {
+            metadataErrors++;
+            rejected.push({
+                kind: 'rejected',
+                id: candidate.id,
+                url: candidate.url,
+                reason: `metadata preflight failed: ${metadata.error}`,
+            });
+        } else {
+            const classified = classifyCandidateGallery(candidate, metadata.info, policy);
+            if (classified.kind === 'allowed') {
+                allowed.push(classified);
+            } else {
+                rejected.push(classified);
+            }
+        }
+
+        if ((i + 1) % 20 === 0 || i + 1 === candidates.length) {
+            log(`Preflight: ${i + 1}/${candidates.length} checked (${allowed.length} allowed, ${rejected.length} rejected)`);
+        }
+    }
+
+    return { allowed, rejected, metadataErrors };
+}
+
 export async function runSync(filtersPath: string, artistsPath: string, queriesPath: string): Promise<SyncStatus> {
     if (syncRunning) {
         log('Sync already running, skipping.');
@@ -71,7 +117,7 @@ export async function runSync(filtersPath: string, artistsPath: string, queriesP
             phase: 'resolving-artists',
             artistsResolved: 0, artistsTotal: 0,
             queriesResolved: 0, queriesTotal: 0,
-            wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0,
+            wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0, allowedCount: 0, rejectedCount: 0, metadataErrorCount: 0,
             cleanup: {
                 phase: 'idle',
                 filterCount: 0,
@@ -123,11 +169,20 @@ export async function runSync(filtersPath: string, artistsPath: string, queriesP
 
         log(`Diff: ${diff.toDownload.length} new, ${diff.toResume.length} to resume, ${diff.alreadyLocal} already local`);
 
-        // Feed the queue (resume first, then new)
         const allIds = [...diff.toResume, ...diff.toDownload];
         if (allIds.length > 0) {
-            queueManager.appendQueue(allIds);
-            log(`Queued ${allIds.length} galleries for download`);
+            currentSync.phase = 'classifying';
+            const classified = await classifyCandidates(allIds.map(candidateFromId), filtersPath, artistsPath, queriesPath);
+            currentSync.allowedCount = classified.allowed.length;
+            currentSync.rejectedCount = classified.rejected.length;
+            currentSync.metadataErrorCount = classified.metadataErrors;
+
+            for (const rejected of classified.rejected) {
+                log(`Preflight rejected ${rejected.id}: ${rejected.reason}`);
+            }
+
+            queueManager.appendAllowed(classified.allowed);
+            log(`Queued ${classified.allowed.length} allowed galleries for download`);
         } else {
             log('Nothing to download — up to date');
         }

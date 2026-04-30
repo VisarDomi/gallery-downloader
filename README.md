@@ -34,6 +34,22 @@ Search and manifest queries use Hitomi-style typed tokens with spaces in values,
 every term must start with a namespace such as `language:`, `artist:`, `group:`, `series:`,
 `character:`, `tag:`, `female:`, or `male:`.
 
+# dry-run diagnostics
+
+`gallery-server/sync.py` is the read-only diagnostic dry run. It fetches Hitomi Nozomi indexes
+and compares them with the local archive, but it does not call the downloader service or queue
+downloads.
+
+Use it from `gallery-server/`:
+
+- `python3 sync.py` checks the current live manifest.
+- `python3 sync.py --verify` also reports the number of galleries on disk.
+- `python3 sync.py --extra-query female:mesugaki` checks a hypothetical query without writing to `queries.txt`.
+
+Do not edit the live manifest files just to test a hypothetical query while the downloader service
+is running. The downloader watches `artists.txt`, `filters.txt`, and `queries.txt`; saving one of
+those files triggers the real TS sync path and can enqueue downloads.
+
 # ocr runtimes
 
 The reader OCR flow now uses repo-owned runtimes and model files.
