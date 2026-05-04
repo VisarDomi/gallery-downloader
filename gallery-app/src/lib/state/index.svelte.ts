@@ -1,5 +1,5 @@
 import { PAGE_SIZE, RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../config.js';
-import type { PaginatedGallerySource, ViewMode } from '../types.js';
+import type { PageTurn, PaginatedGallerySource, ViewMode } from '../types.js';
 import * as api from '../services/api.js';
 import { LogService } from '../services/LogService.js';
 import { setDbLogger } from '../services/db.js';
@@ -111,11 +111,28 @@ class AppState {
 
     /** Single owner of page-change orchestration: log, sentinel, persist, scroll. */
     changePage(view: ViewMode, source: PaginatedGallerySource, page: number) {
-        this.log.emit('page-change', { view, from: source.currentPage, to: page, totalItems: source.totalPages * PAGE_SIZE });
+        const previousPage = source.currentPage;
+        const turn = this.classifyPageTurn(previousPage, page);
+        this.log.emit('page-change', { view, from: previousPage, to: page, totalItems: source.totalPages * PAGE_SIZE });
         this.updateSentinel(`page-change:${view}:${page}`);
         source.currentPage = page;
         this.persistSession();
-        document.getElementById(`view-${view}`)?.scrollTo(0, 0);
+        this.applyPageTurnScroll(view, turn);
+    }
+
+    private classifyPageTurn(from: number, to: number): PageTurn {
+        if (to < from) return { direction: 'backward', scrollAnchor: 'bottom' };
+        if (to > from) return { direction: 'forward', scrollAnchor: 'top' };
+        return { direction: 'same', scrollAnchor: 'top' };
+    }
+
+    private applyPageTurnScroll(view: ViewMode, turn: PageTurn) {
+        requestAnimationFrame(() => {
+            const container = document.getElementById(`view-${view}`);
+            if (!container) return;
+            const top = turn.scrollAnchor === 'bottom' ? container.scrollHeight : 0;
+            container.scrollTo(0, top);
+        });
     }
 
     /** Single owner of search→persist flow. */

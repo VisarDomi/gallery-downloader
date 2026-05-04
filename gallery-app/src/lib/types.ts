@@ -25,6 +25,10 @@ export interface PagePosition {
 
 export type ViewMode = 'list' | 'reader' | 'saved' | 'favorites';
 
+export type PageTurn =
+    | { direction: 'backward'; scrollAnchor: 'bottom' }
+    | { direction: 'forward' | 'same'; scrollAnchor: 'top' };
+
 /** Shared interface for paginated gallery sources (SearchState, FavoritesState). */
 export interface PaginatedGallerySource {
     readonly paginatedGalleries: GalleryListItem[];
