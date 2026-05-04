@@ -14,6 +14,7 @@ const filtersPath = path.join(__dirname, 'filters.txt');
 const artistsPath = path.join(__dirname, 'artists.txt');
 const queriesPath = path.join(__dirname, 'queries.txt');
 const aliasMissingPath = path.join(__dirname, 'salvaged-alias-missing.txt');
+const metadataMissingPath = path.join(__dirname, 'salvaged-metadata-missing.txt');
 const unaliasedPath = path.join(__dirname, 'salvaged-unaliased.txt');
 const indexDbPath = path.join(os.homedir(), 'Pictures', 'gallery-dl', 'gallery-index.db');
 
@@ -86,6 +87,9 @@ async function resolveMetadataId(id) {
     });
 
     if (!response.ok) {
+        if (response.status === 404) {
+            return { kind: 'missing' };
+        }
         throw new Error(`${id}: metadata HTTP ${response.status}`);
     }
 
@@ -95,7 +99,7 @@ async function resolveMetadataId(id) {
         throw new Error(`${id}: metadata ID not found`);
     }
 
-    return Number(match[1]);
+    return { kind: 'found', id: Number(match[1]) };
 }
 
 const resolution = await resolveManifest(filtersPath, artistsPath, queriesPath);
@@ -112,10 +116,17 @@ const salvagedIds = localIds.filter((id) => !resolution.wantedIds.has(id));
 
 const aliasLocalIds = [];
 const aliasMissing = [];
+const metadataMissing = [];
 const unaliased = [];
 
 for (const id of salvagedIds) {
-    const metadataId = await resolveMetadataId(id);
+    const metadata = await resolveMetadataId(id);
+    if (metadata.kind === 'missing') {
+        metadataMissing.push(formatUrl(id));
+        continue;
+    }
+
+    const metadataId = metadata.id;
     if (metadataId === id) {
         unaliased.push(formatUrl(id));
     } else if (localIdSet.has(metadataId)) {
@@ -134,6 +145,7 @@ for (const skipped of deleteResult.skipped ?? []) {
 }
 
 writeLines(aliasMissingPath, aliasMissing);
+writeLines(metadataMissingPath, metadataMissing);
 writeLines(unaliasedPath, unaliased);
 
 for (const oldPath of [
@@ -151,5 +163,6 @@ console.log(
     `[salvaged] wrote ${salvagedIds.length} entries ` +
     `(alias-local-deleted=${deleteResult.deleted?.length ?? 0}, ` +
     `alias-local-skipped=${deleteResult.skipped?.length ?? 0}, alias-missing=${aliasMissing.length}, ` +
-    `unaliased=${unaliased.length}, local=${localIds.length}, wanted=${resolution.wantedIds.size})`,
+    `metadata-missing=${metadataMissing.length}, unaliased=${unaliased.length}, ` +
+    `local=${localIds.length}, wanted=${resolution.wantedIds.size})`,
 );

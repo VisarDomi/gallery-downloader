@@ -76,6 +76,16 @@
 
 **Cleanup rule:** A local gallery is removed ONLY if it has a filter-negative tag. The wanted set from nozomi determines what to download, not what to keep.
 
+## Salvaged metadata 404s: manual backup queue
+
+**Decision:** A local salvaged gallery whose Hitomi metadata JS returns HTTP 404 is preserved and written to `gallery-server/salvaged-metadata-missing.txt`. The salvaged updater must not fail the whole timer run for this case, and must not delete the gallery automatically.
+
+**Why:** Hitomi gallery HTML pages are shell pages. They can return HTTP 200 while dynamically loading `https://ltn.gold-usergeneratedcontent.net/galleries/<id>.js`; if that metadata JS returns 404, Hitomi's own frontend shows a 404 for the gallery. This means the local gallery is genuinely salvaged/preserved content rather than a normal alias that can be resolved from metadata.
+
+**Alias distinction:** Normal alias handling still requires readable metadata: if `<old>.js` exists and contains a different `id`, the updater can classify it as alias-local or alias-missing. A metadata 404 has no canonical ID to compare, so it is surfaced for manual backup instead.
+
+**Example:** On 2026-05-04, gallery `3881533` existed locally but `https://ltn.gold-usergeneratedcontent.net/galleries/3881533.js` returned HTTP 404. The gallery was zipped manually to `~/Downloads/hitomi-3881533-salvaged.zip`; future cases should appear in `salvaged-metadata-missing.txt`.
+
 ## Filter policy cleanup: local enforcement
 
 **Decision:** `filters.txt` is enforced in two places: remote resolution prevents future downloads, and downloader-owned policy cleanup removes already-local violations. Cleanup reads the index DB in readonly mode to find local galleries whose indexed columns/tags match filter negatives, then delegates deletion to the streamer through `POST /api/delete`.
