@@ -242,12 +242,14 @@ export class ReaderState {
         return this.progress[galleryId]?.pageIndex ?? 0;
     }
 
-    async openReader(item: GalleryListItem, startPage: number) {
+    async openReader(item: GalleryListItem, startPage: number, startFraction = 0) {
         // Drop previous session if still alive
         this.session?.drop();
 
         const gallery = await api.getGallery(item.gallery_id);
-        const position: PagePosition = { pageIndex: startPage, fraction: 0 };
+        const pageIndex = Math.max(0, Math.min(gallery.count - 1, startPage));
+        const fraction = Math.max(0, Math.min(1, startFraction));
+        const position: PagePosition = { pageIndex, fraction };
         const s = new ReaderSession(gallery, this.emit, position);
         this.session = s;
 

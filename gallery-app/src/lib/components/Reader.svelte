@@ -152,13 +152,13 @@
         // Scroll to start position within the reader's own scroll container
         const rafId = requestAnimationFrame(() => {
             if (s.isDropped) return;
-            if (viewReader && initialPosition.pageIndex > 0) {
+            if (viewReader) {
                 const el = pageElements[initialPosition.pageIndex];
                 if (el) {
-                    viewReader.scrollTop = el.offsetTop + initialPosition.fraction * el.offsetHeight;
+                    const targetCenter = el.offsetTop + initialPosition.fraction * el.offsetHeight;
+                    const maxScrollTop = viewReader.scrollHeight - viewReader.clientHeight;
+                    viewReader.scrollTop = Math.max(0, Math.min(maxScrollTop, targetCenter - viewReader.clientHeight / 2));
                 }
-            } else if (viewReader) {
-                viewReader.scrollTop = 0;
             }
             const timerId = setTimeout(() => { suppressSave = false; }, 500);
             s.addTimer(timerId);

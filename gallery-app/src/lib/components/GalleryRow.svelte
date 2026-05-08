@@ -156,7 +156,9 @@
         const rect = stripContainer.getBoundingClientRect();
         const clickX = e.clientX - rect.left + stripContainer.scrollLeft;
         const pageIndex = Math.floor(clickX / THUMB_WIDTH);
-        appState.reader.openReader(gallery, pageIndex);
+        const pageOffset = clickX - pageIndex * THUMB_WIDTH;
+        const pageFraction = Math.max(0, Math.min(1, pageOffset / THUMB_WIDTH));
+        appState.reader.openReader(gallery, pageIndex, pageFraction);
     }
 
     function handleResume() {
