@@ -161,6 +161,14 @@ export async function getOcrBackends(): Promise<{
     return res.json();
 }
 
+export async function getOcrStatus(): Promise<{ available: boolean }> {
+    const res = await fetch(API.OCR_STATUS());
+    if (!res.ok) {
+        return { available: false };
+    }
+    return res.json();
+}
+
 export async function ocrLookup(
     viewport: OcrViewportRequest,
 ): Promise<OcrLookupResponse> {

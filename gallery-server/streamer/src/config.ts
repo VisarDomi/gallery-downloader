@@ -8,6 +8,8 @@ const STREAMER_ROOT = path.resolve(__dirname, '..');
 
 export const CONFIG = {
     PORT: 11556,
+    OCR_PORT: 11559,
+    OCR_SERVICE_URL: process.env.GALLERY_OCR_SERVICE_URL ?? 'https://localhost:11559',
     MEDIA_ROOT: '/home/visar/Pictures',
     SSL_DIR: path.join(os.homedir(), '.local/share/mkcert/pwa'),
     BATCH_LIMIT: '200mb',

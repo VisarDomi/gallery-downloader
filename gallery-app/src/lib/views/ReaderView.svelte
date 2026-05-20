@@ -7,12 +7,13 @@
     import { swipeLookup } from '$lib/actions/swipeLookup.js';
     import Reader from '$lib/components/Reader.svelte';
     import { buildReaderViewportRequest } from '$lib/services/captureViewport.js';
-    import { ocrLookup } from '$lib/services/api.js';
+    import { getOcrStatus, ocrLookup } from '$lib/services/api.js';
     import { openShirabeLookup } from '$lib/services/shirabe.js';
 
     const session = $derived(appState.reader.session);
     const getReaderRoot = getContext<() => HTMLElement | null>('readerRoot');
     let lookupInFlight = $state(false);
+    let ocrAvailable = $state(false);
     let ocrButtonVisible = $state(false);
     let ocrButtonSuppressed = $state(false);
     let lookupPhase = $state<'idle' | 'capturing' | 'ocr' | 'opening' | 'failed'>('idle');
@@ -27,12 +28,14 @@
     const OCR_BUTTON_MARGIN_PX = 16;
     const OCR_BUTTON_SIZE_PX = 64;
     const OCR_FAILURE_RESET_MS = 2000;
+    const OCR_STATUS_POLL_MS = 3_000;
 
     function handleClose() {
         appState.reader.closeReader();
     }
 
     function toggleOcrButton() {
+        if (!ocrAvailable) return;
         if (lookupInFlight) return;
         ocrButtonVisible = !ocrButtonVisible;
         if (ocrButtonVisible) {
@@ -76,6 +79,8 @@
         }
         const viewport = window.visualViewport;
         let settleTimer: ReturnType<typeof setTimeout> | undefined;
+        let statusTimer: ReturnType<typeof setInterval> | undefined;
+        let statusInFlight = false;
 
         function clearSuppression() {
             settleTimer = undefined;
@@ -97,16 +102,44 @@
 
         updateButtonViewportRect();
 
+        async function refreshOcrStatus() {
+            if (statusInFlight) return;
+            statusInFlight = true;
+            try {
+                const status = await getOcrStatus();
+                ocrAvailable = status.available;
+                if (!status.available && lookupInFlight) {
+                    lookupPhase = 'failed';
+                }
+                if (status.available && ocrButtonVisible) {
+                    updateButtonViewportRect();
+                }
+            } catch {
+                ocrAvailable = false;
+            } finally {
+                statusInFlight = false;
+            }
+        }
+
+        void refreshOcrStatus();
+        statusTimer = setInterval(refreshOcrStatus, OCR_STATUS_POLL_MS);
+        window.addEventListener('focus', refreshOcrStatus);
+        document.addEventListener('visibilitychange', refreshOcrStatus);
+
         return () => {
             if (settleTimer) clearTimeout(settleTimer);
+            if (statusTimer) clearInterval(statusTimer);
             viewport?.removeEventListener('resize', suppressTemporarily);
             viewport?.removeEventListener('scroll', suppressTemporarily);
             window.removeEventListener('scroll', suppressTemporarily);
             window.removeEventListener('resize', suppressTemporarily);
+            window.removeEventListener('focus', refreshOcrStatus);
+            document.removeEventListener('visibilitychange', refreshOcrStatus);
         };
     });
 
     async function handleLookup(source: 'swipe' | 'button' = 'swipe') {
+        if (!ocrAvailable) return;
         if (lookupInFlight) return;
         const lookupStarted = performance.now();
         ocrButtonVisible = true;
@@ -195,10 +228,10 @@
 <div
     use:tapToggle={{ onTap: toggleOcrButton }}
     use:swipeBack={{ onClose: handleClose, peekBack: () => appState.ui.peekBack() }}
-    use:swipeLookup={{ onLookup: handleLookup }}
+    use:swipeLookup={{ onLookup: ocrAvailable ? handleLookup : () => undefined }}
 >
     <Reader {session} onClose={handleClose} />
-    {#if ocrButtonVisible && !ocrButtonSuppressed}
+    {#if ocrAvailable && ocrButtonVisible && !ocrButtonSuppressed}
         <div class="reader-ocr-overlay" style={buttonOverlayStyle()}>
             <button
                 class="reader-ocr-fab"

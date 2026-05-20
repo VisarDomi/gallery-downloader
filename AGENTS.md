@@ -13,6 +13,14 @@ Go scanner: `gallery-server/indexer/src/go/scanner.go`
 - Ownership rule:
   `~/Documents/memory/ownership.md`
 
+## Logs
+
+- Start debugging by checking the managed service logs.
+- Use direct `journalctl` for bounded reads:
+  `journalctl --user -u gallery-streamer.service -n 300 --no-pager`
+- For a time window, usually the specific time after a build so that you get the logs from the user tests:
+  `journalctl --user -u gallery-streamer.service --since '2026-05-09 01:13:00' --until now --no-pager`
+
 ## Repo notes
 
 - Ports:

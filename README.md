@@ -84,7 +84,8 @@ Setup expectations:
 
 Operational notes:
 
-- OCR debug artifacts are written to `/tmp/gallery-ocr-debug/` when `GALLERY_OCR_DEBUG_ARTIFACTS=1` is set for the streamer service.
-- The default `paddle-vl` OCR worker preloads after streamer startup and stays loaded until `gallery-streamer.service` stops. Set `GALLERY_OCR_PRELOAD_DELAY_MS` on the streamer service to change the default 5 minute startup delay.
-- Restarting `gallery-streamer.service` clears warm OCR workers and frees OCR-related VRAM.
+- OCR debug artifacts are written to `/tmp/gallery-ocr-debug/` when `GALLERY_OCR_DEBUG_ARTIFACTS=1` is set for the OCR service.
+- The default `paddle-vl` OCR worker preloads after OCR service startup and stays loaded until `gallery-ocr.service` stops. Set `GALLERY_OCR_PRELOAD_DELAY_MS` on the OCR service to change the default 5 minute startup delay.
+- OCR runs in `gallery-ocr.service` on localhost port `11559`. Starting or stopping that unit enables/disables OCR dynamically in the reader UI without restarting `gallery-streamer.service`.
+- Stopping `gallery-ocr.service` clears warm OCR workers and frees OCR-related VRAM.
 - `manga-ocr` is currently kept only as an experimental backend. The production path is `paddle-vl`.

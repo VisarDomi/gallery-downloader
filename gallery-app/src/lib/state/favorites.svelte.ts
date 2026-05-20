@@ -60,9 +60,10 @@ export class FavoritesState {
     }
 
     async loadGalleries() {
-        this.currentPage = 0;
+        const previousPage = this.currentPage;
         const ids = [...this.favoriteIds];
         if (ids.length === 0) {
+            this.currentPage = 0;
             this.favoriteGalleries = [];
             return;
         }
@@ -72,6 +73,7 @@ export class FavoritesState {
             const idOrder = new Map(ids.map((id, i) => [id, i]));
             galleries.sort((a, b) => (idOrder.get(a.gallery_id) ?? 0) - (idOrder.get(b.gallery_id) ?? 0));
             this.favoriteGalleries = galleries;
+            this.currentPage = Math.min(previousPage, this.totalPages - 1);
         } catch (e) {
             this.emit('favorites-load-failed', { error: String(e) });
         }

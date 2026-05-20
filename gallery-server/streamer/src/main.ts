@@ -3,14 +3,33 @@ import cors from 'cors';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
+import https from 'https';
 import { createProxyMiddleware } from 'http-proxy-middleware';
 import { CONFIG } from './config.js';
 import { createHttpsServer } from './ssl.js';
 import { handleBatchRequest } from './batch.js';
 import { handleDeleteRequest } from './delete.js';
-import { handleOcrBackendsRequest, handleOcrLookupRequest, scheduleDefaultOcrWarmup } from './ocr.js';
 
 const app = express();
+
+function checkOcrServiceHealth(): Promise<boolean> {
+    return new Promise((resolve) => {
+        const req = https.request(`${CONFIG.OCR_SERVICE_URL}/health`, {
+            method: 'GET',
+            rejectUnauthorized: false,
+            timeout: 750,
+        }, (response) => {
+            response.resume();
+            resolve(Boolean(response.statusCode && response.statusCode >= 200 && response.statusCode < 300));
+        });
+        req.on('timeout', () => {
+            req.destroy();
+            resolve(false);
+        });
+        req.on('error', () => resolve(false));
+        req.end();
+    });
+}
 
 // CORS first (needed for all routes including proxied ones)
 app.use(cors({ origin: "*" }));
@@ -29,6 +48,26 @@ app.use(createProxyMiddleware({
     secure: false,
     changeOrigin: true,
     pathFilter: ['/immediate', '/sync', '/sync/status', '/queries', '/remove', '/remove/status', '/policy-cleanup', '/policy-cleanup/status', '/artists'],
+}));
+
+app.get('/api/ocr/status', async (_req, res) => {
+    res.json({ available: await checkOcrServiceHealth() });
+});
+
+app.use(createProxyMiddleware({
+    target: CONFIG.OCR_SERVICE_URL,
+    secure: false,
+    changeOrigin: true,
+    pathFilter: ['/api/ocr/backends', '/api/ocr/lookup'],
+    on: {
+        error: (_err, _req, res) => {
+            const response = res as { headersSent?: boolean; writeHead?: (statusCode: number, headers?: Record<string, string>) => void; end: (body?: string) => void };
+            if (!response.headersSent) {
+                response.writeHead?.(503, { 'Content-Type': 'application/json' });
+            }
+            response.end(JSON.stringify({ error: 'OCR service unavailable' }));
+        },
+    },
 }));
 
 // Body parsing (after proxy routes, so proxied requests keep their raw stream)
@@ -60,8 +99,6 @@ app.get('/api/cert', (_req, res) => {
     }
 });
 
-app.get('/api/ocr/backends', handleOcrBackendsRequest);
-app.post('/api/ocr/lookup', handleOcrLookupRequest);
 app.post('/api/batch', handleBatchRequest);
 app.post('/api/delete', handleDeleteRequest);
 
@@ -91,7 +128,6 @@ try {
         console.log(`Streamer running on port ${CONFIG.PORT}`);
         console.log(`Serving media: ${CONFIG.MEDIA_ROOT}`);
         console.log(`Serving frontend: ${CONFIG.FRONTEND_BUILD_PATH}`);
-        scheduleDefaultOcrWarmup();
 
         // Log Network Interfaces
         const networkInterfaces = os.networkInterfaces();
