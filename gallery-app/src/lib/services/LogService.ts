@@ -17,7 +17,6 @@ export type LogEvent =
     // Pagination
     | { event: 'page-change'; view: string; from: number; to: number; totalItems: number }
     // Search & favorites
-    | { event: 'filter-load-failed'; error: string }
     | { event: 'search-failed'; error: string }
     | { event: 'favorites-load-failed'; error: string }
     | { event: 'queries-load-failed'; error: string }

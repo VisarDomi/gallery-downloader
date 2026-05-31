@@ -23,7 +23,6 @@ export const API = {
         return `/search?${params}`;
     },
     GALLERY: (id: number) => `/gallery/${id}`,
-    FACETS: () => '/facets',
     GALLERIES: () => '/galleries',
     REFRESH: () => '/refresh',
     QUERIES: () => '/queries',

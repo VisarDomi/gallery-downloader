@@ -11,9 +11,6 @@ export class SearchState {
     currentPage = $state(0);
     isLoading = $state(false);
 
-    availableArtists = $state<[string, number][]>([]);
-    availableGroups = $state<[string, number][]>([]);
-
     constructor(emit: LogEmit) {
         this.emit = emit;
     }
@@ -25,16 +22,6 @@ export class SearchState {
     get paginatedGalleries(): GalleryListItem[] {
         const start = this.currentPage * PAGE_SIZE;
         return this.allGalleries.slice(start, start + PAGE_SIZE);
-    }
-
-    async loadFilterOptions() {
-        try {
-            const data = await api.facets();
-            this.availableArtists = data.artists;
-            this.availableGroups = data.groups;
-        } catch (e) {
-            this.emit('filter-load-failed', { error: String(e) });
-        }
     }
 
     async search(query: string) {

@@ -26,10 +26,6 @@ interface FavoriteEntry {
     savedAt: number;
 }
 
-interface SavedSearchEntry {
-    query: string;
-}
-
 let dbPromise: Promise<IDBDatabase> | null = null;
 
 function openDB(): Promise<IDBDatabase> {
@@ -45,7 +41,6 @@ function openDB(): Promise<IDBDatabase> {
             if (oldVersion < 1) {
                 db.createObjectStore('progress', { keyPath: 'galleryId' });
                 db.createObjectStore('favorites', { keyPath: 'galleryId' });
-                db.createObjectStore('savedSearches', { keyPath: 'query' });
             }
 
             if (oldVersion < 2) {
@@ -152,27 +147,6 @@ export async function getAllFavorites(): Promise<FavoriteEntry[]> {
     });
 }
 
-// Saved Searches
-export async function addSavedSearch(query: string): Promise<void> {
-    const db = await openDB();
-    return new Promise((resolve) => {
-        const tx = db.transaction('savedSearches', 'readwrite');
-        tx.objectStore('savedSearches').put({ query } satisfies SavedSearchEntry);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => { reportError('addSavedSearch', tx.error); resolve(); };
-    });
-}
-
-export async function removeSavedSearch(query: string): Promise<void> {
-    const db = await openDB();
-    return new Promise((resolve) => {
-        const tx = db.transaction('savedSearches', 'readwrite');
-        tx.objectStore('savedSearches').delete(query);
-        tx.oncomplete = () => resolve();
-        tx.onerror = () => { reportError('removeSavedSearch', tx.error); resolve(); };
-    });
-}
-
 export async function removeGalleries(ids: number[]): Promise<void> {
     const db = await openDB();
     return new Promise((resolve) => {
@@ -185,15 +159,5 @@ export async function removeGalleries(ids: number[]): Promise<void> {
         }
         tx.oncomplete = () => resolve();
         tx.onerror = () => { reportError('removeGalleries', tx.error); resolve(); };
-    });
-}
-
-export async function getAllSavedSearches(): Promise<string[]> {
-    const db = await openDB();
-    return new Promise((resolve) => {
-        const tx = db.transaction('savedSearches', 'readonly');
-        const req = tx.objectStore('savedSearches').getAll();
-        req.onsuccess = () => resolve((req.result as SavedSearchEntry[]).map(e => e.query));
-        req.onerror = () => { reportError('getAllSavedSearches', req.error); resolve([]); };
     });
 }

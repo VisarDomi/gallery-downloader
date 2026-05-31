@@ -87,8 +87,6 @@ class AppState {
                 this.log.emit('refresh-index-failed', { message: String(e) }),
             );
 
-            await this.searchState.loadFilterOptions();
-
             await this.restoreSession();
 
             this.setupResumeDetection();

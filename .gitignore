@@ -5,6 +5,7 @@ build/
 .vite/
 .idea/
 .venv/
+backups/
 gallery-server/gallery-dl/
 gallery-server/sprite-gen/sprite-gen
 gallery-server/artists.txt

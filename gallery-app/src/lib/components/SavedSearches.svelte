@@ -1,32 +1,38 @@
 <script lang="ts">
     import { appState } from '$lib/state/index.svelte.js';
 
-    const searches = $derived(appState.saved.allSearches);
-
     async function handleClick(query: string) {
         appState.saved.hide();
         await appState.searchAndPersist(() => appState.searchState.search(query));
-    }
-
-    function handleDelete(e: Event, query: string) {
-        e.stopPropagation();
-        appState.saved.remove(query);
     }
 </script>
 
 {#if appState.saved.visible}
 <div class="saved-list">
-    {#if searches.length === 0}
-        <div class="result-count">No saved searches</div>
+    {#if !appState.saved.hasEntries}
+        <div class="result-count">No saved entries</div>
     {:else}
-        {#each searches as { query, isDefault }}
-            <button class="saved-item" onclick={() => handleClick(query)}>
-                <span class="saved-item-query">{query}</span>
-                {#if !isDefault}
-                    <span class="saved-item-delete" role="button" tabindex="0" onclick={(e) => handleDelete(e, query)} onkeydown={(e) => { if (e.key === 'Enter') handleDelete(e, query); }}>&#x2715;</span>
-                {/if}
-            </button>
-        {/each}
+        {#if appState.saved.queries.length > 0}
+            <div class="saved-section">
+                <div class="saved-section-title">Queries</div>
+                <div class="saved-grid">
+                    {#each appState.saved.queries as query}
+                        <button class="saved-item" onclick={() => handleClick(query)}>{query}</button>
+                    {/each}
+                </div>
+            </div>
+        {/if}
+
+        {#if appState.saved.artists.length > 0}
+            <div class="saved-section">
+                <div class="saved-section-title">Artists / Groups</div>
+                <div class="saved-grid">
+                    {#each appState.saved.artists as query}
+                        <button class="saved-item" onclick={() => handleClick(query)}>{query}</button>
+                    {/each}
+                </div>
+            </div>
+        {/if}
     {/if}
 </div>
 {/if}

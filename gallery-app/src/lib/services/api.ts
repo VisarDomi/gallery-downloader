@@ -84,15 +84,6 @@ export async function getGalleries(ids: number[]): Promise<GalleryListItem[]> {
     return res.json();
 }
 
-export async function facets(): Promise<{
-    languages: [string, number][];
-    artists: [string, number][];
-    groups: [string, number][];
-}> {
-    const res = await fetch(API.FACETS());
-    return res.json();
-}
-
 export async function fetchDefaultQueries(): Promise<string[]> {
     const res = await fetch(API.QUERIES());
     return res.json();
