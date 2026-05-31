@@ -2,6 +2,7 @@
     import { appState } from '$lib/state/index.svelte.js';
     import type { GalleryListItem, ViewMode, PaginatedGallerySource } from '$lib/types.js';
     import SearchBar from '$lib/components/SearchBar.svelte';
+    import SavedSearches from '$lib/components/SavedSearches.svelte';
     import GalleryList from '$lib/components/GalleryList.svelte';
     import Pagination from '$lib/components/Pagination.svelte';
 
@@ -12,7 +13,6 @@
         label,
         source,
         query = '',
-        allowReplay = false,
     }: {
         viewId: ViewMode;
         galleries: GalleryListItem[];
@@ -20,12 +20,12 @@
         label: string;
         source: PaginatedGallerySource;
         query?: string;
-        allowReplay?: boolean;
     } = $props();
 
 </script>
 
 <SearchBar />
+<SavedSearches />
 
 <div class="content-wrapper">
     <div class="results-info">
@@ -40,7 +40,7 @@
             onPage={(p) => appState.changePage(viewId, source, p)}
     />
     <div class="gallery-list-container">
-        <GalleryList {galleries} {allowReplay} />
+        <GalleryList {galleries} />
     </div>
 
     <Pagination

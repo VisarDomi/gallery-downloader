@@ -21,6 +21,5 @@
         {total}
         label="favorites"
         source={appState.favorites}
-        allowReplay={true}
     />
 </div>

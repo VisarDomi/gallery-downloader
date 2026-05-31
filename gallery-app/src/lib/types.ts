@@ -23,7 +23,8 @@ export interface PagePosition {
     fraction: number; // 0.0 = top of page, 1.0 = bottom of page
 }
 
-export type ViewMode = 'list' | 'reader' | 'saved' | 'favorites';
+export type RootViewMode = 'list' | 'favorites';
+export type ViewMode = RootViewMode | 'reader';
 
 export type PageTurn =
     | { direction: 'backward'; scrollAnchor: 'bottom' }

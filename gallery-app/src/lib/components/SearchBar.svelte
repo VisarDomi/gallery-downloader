@@ -35,16 +35,13 @@
     }
 
     function handleSavedView() {
-        if (appState.ui.viewMode === 'saved') {
-            appState.ui.popView();
-        } else {
-            appState.ui.pushView('saved');
-        }
+        appState.saved.toggleVisible();
     }
 
     function handleFavoritesView() {
-        if (appState.ui.viewMode === 'favorites') {
-            appState.ui.popView();
+        appState.saved.hide();
+        if (appState.ui.rootView === 'favorites' && appState.ui.viewMode !== 'reader') {
+            appState.openList();
         } else {
             appState.openFavorites();
         }
@@ -97,7 +94,7 @@
         <button class="action-btn" onclick={handleSave}>Save</button>
         <button
             class="action-btn"
-            class:active={appState.ui.viewMode === 'saved'}
+            class:active={appState.saved.visible}
             onclick={handleSavedView}
         >Saved</button>
         <button

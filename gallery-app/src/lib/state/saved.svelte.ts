@@ -7,6 +7,7 @@ export class SavedState {
     savedSearches = $state<string[]>([]);
     /** Queries from queries.txt — always shown, not deletable by user */
     defaultQueries = $state<string[]>([]);
+    visible = $state(false);
 
     constructor(emit: LogEmit) {
         this.emit = emit;
@@ -50,5 +51,13 @@ export class SavedState {
     async remove(query: string) {
         await db.removeSavedSearch(query);
         this.savedSearches = this.savedSearches.filter(q => q !== query);
+    }
+
+    toggleVisible() {
+        this.visible = !this.visible;
+    }
+
+    hide() {
+        this.visible = false;
     }
 }

@@ -1,11 +1,11 @@
-import type { ViewMode } from '../types.js';
+import type { RootViewMode, ViewMode } from '../types.js';
 import { getJson, setJson, remove } from '../services/storage.js';
 
 const SESSION_KEY = 'session';
 
 export interface SessionSnapshot {
     viewMode: ViewMode;
-    viewStack: ViewMode[];
+    viewStack: RootViewMode[];
     activeGalleryId?: number;
     searchQuery?: string;
     searchPage?: number;

@@ -1,5 +1,5 @@
 import { PAGE_SIZE, RESUME_RECOVERY_MS, DEEP_SLEEP_MS } from '../config.js';
-import type { PageTurn, PaginatedGallerySource, ViewMode } from '../types.js';
+import type { PageTurn, PaginatedGallerySource, RootViewMode, ViewMode } from '../types.js';
 import * as api from '../services/api.js';
 import { LogService } from '../services/LogService.js';
 import { setDbLogger } from '../services/db.js';
@@ -137,40 +137,23 @@ class AppState {
 
     /** Single owner of search→persist flow. */
     async searchAndPersist(searchFn: () => Promise<void>) {
-        this.ui.pushView('list');
+        this.saved.hide();
+        this.ui.setRoot('list');
         await searchFn();
         this.persistSession();
     }
 
     // -- Cross-domain orchestration --
 
-    async replaySearch(galleryId: number) {
-        const query = this.favorites.getQuery(galleryId);
-        if (!query) return;
-
-        await this.searchState.search(query);
-
-        const idx = this.searchState.allGalleries.findIndex(g => g.gallery_id === galleryId);
-        if (idx >= 0) {
-            this.searchState.currentPage = Math.floor(idx / PAGE_SIZE);
-        }
-
-        this.ui.pushView('list');
-
-        setTimeout(() => {
-            const container = document.getElementById('view-list');
-            const el = container?.querySelector(`#gallery-${galleryId}`) as HTMLElement | null;
-            if (el) {
-                el.scrollIntoView({ behavior: 'auto', block: 'center' });
-                el.classList.add('replay-highlight');
-                setTimeout(() => el.classList.remove('replay-highlight'), 1500);
-            }
-        }, 100);
+    openFavorites() {
+        this.saved.hide();
+        this.ui.setRoot('favorites');
+        this.favorites.loadGalleries();
     }
 
-    openFavorites() {
-        this.ui.pushView('favorites');
-        this.favorites.loadGalleries();
+    openList() {
+        this.saved.hide();
+        this.ui.setRoot('list');
     }
 
     // -- Session persistence --
@@ -186,7 +169,7 @@ class AppState {
         clearTimeout(this.scrollTimer);
         saveSession({
             viewMode: this.ui.viewMode,
-            viewStack: this.ui.viewStack,
+            viewStack: this.ui.viewMode === 'reader' ? [this.ui.rootView] : [],
             activeGalleryId: this.reader.activeGallery?.gallery_id,
             searchQuery: this.searchState.currentQuery || undefined,
             searchPage: this.searchState.currentPage || undefined,
@@ -212,14 +195,16 @@ class AppState {
 
         clearSession();
 
-        // Restore search if we had one
-        if (snap.searchQuery) {
-            await this.searchState.search(snap.searchQuery);
-            if (snap.searchPage) {
-                this.searchState.currentPage = snap.searchPage;
+        const rootView = this.sessionRootView(snap);
+        if (rootView === 'list') {
+            if (snap.searchQuery) {
+                await this.searchState.search(snap.searchQuery);
+                if (snap.searchPage) {
+                    this.searchState.currentPage = snap.searchPage;
+                }
+            } else {
+                await this.searchState.search(this.searchState.currentQuery);
             }
-        } else {
-            await this.searchState.search(this.searchState.currentQuery);
         }
 
         // Restore view based on saved mode
@@ -228,10 +213,10 @@ class AppState {
                 if (snap.activeGalleryId != null) {
                     // IDB progress is the single owner of persistent position data —
                     // always fresher than the session snapshot (which only updates on view changes)
-                    const position = this.reader.getProgress(snap.activeGalleryId);
+                        const position = this.reader.getProgress(snap.activeGalleryId);
                     try {
                         await this.reader.restoreReader(snap.activeGalleryId, position);
-                        this.ui.setViewDirect('reader', snap.viewStack);
+                        this.ui.setViewDirect('reader', rootView);
                         await this.prepareBackViews(snap);
                         this.persistSession();
                         this.log.emit('restore-ok', { view: 'reader', galleryId: snap.activeGalleryId });
@@ -244,20 +229,14 @@ class AppState {
                 break;
 
             case 'favorites':
-                this.ui.setViewDirect('favorites', snap.viewStack);
+                this.ui.setViewDirect('favorites', 'favorites');
                 await this.favorites.loadGalleries();
-                if (snap.favoritesPage) {
-                    this.favorites.currentPage = snap.favoritesPage;
+                if (snap.favoritesPage != null) {
+                    this.favorites.currentPage = Math.min(snap.favoritesPage, this.favorites.totalPages - 1);
                 }
                 this.restoreScrollPositions(snap);
                 this.persistSession();
                 this.log.emit('restore-ok', { view: 'favorites' });
-                return;
-
-            case 'saved':
-                this.ui.setViewDirect('saved', snap.viewStack);
-                this.persistSession();
-                this.log.emit('restore-ok', { view: 'saved' });
                 return;
 
             case 'list':
@@ -265,9 +244,16 @@ class AppState {
                 break;
         }
 
+        this.ui.setViewDirect('list', 'list');
         this.restoreScrollPositions(snap);
         this.persistSession();
         this.log.emit('restore-ok', { view: 'list' });
+    }
+
+    private sessionRootView(snap: SessionSnapshot): RootViewMode {
+        if (snap.viewMode === 'favorites') return 'favorites';
+        if (snap.viewMode === 'reader' && snap.viewStack.includes('favorites')) return 'favorites';
+        return 'list';
     }
 
     private restoreScrollPositions(snap: SessionSnapshot) {
@@ -291,7 +277,7 @@ class AppState {
     private async prepareBackViews(snap: SessionSnapshot) {
         if (!snap.activeGalleryId) return;
 
-        const backView = snap.viewStack[snap.viewStack.length - 1];
+        const backView = this.sessionRootView(snap);
 
         if (backView === 'favorites') {
             await this.favorites.loadGalleries();

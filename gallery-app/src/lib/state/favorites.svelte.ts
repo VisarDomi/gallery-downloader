@@ -79,10 +79,6 @@ export class FavoritesState {
         }
     }
 
-    getQuery(id: number): string | undefined {
-        return this.favoriteQueries[id];
-    }
-
     removeGalleries(ids: Set<number>) {
         const newFavIds = new Set(this.favoriteIds);
         const newQueries = { ...this.favoriteQueries };

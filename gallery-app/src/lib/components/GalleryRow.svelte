@@ -10,10 +10,8 @@
 
     let {
         gallery,
-        allowReplay = false,
     }: {
         gallery: GalleryListItem;
-        allowReplay?: boolean;
     } = $props();
 
     let rowElement: HTMLDivElement | undefined = $state();
@@ -30,7 +28,6 @@
     const isFav = $derived(appState.favorites.favoriteIds.has(id));
     const progressIndex = $derived(appState.reader.getProgressIndex(id));
     const activeReaderGalleryId = $derived(appState.reader.activeGallery?.gallery_id ?? null);
-    const savedQuery = $derived(appState.favorites.favoriteQueries[id]);
 
     // Track which thumbnails have been loaded (src set)
     let loadedThumbs = new Set<number>();
@@ -165,10 +162,6 @@
         appState.reader.openReader(gallery, progressIndex);
     }
 
-    function handleReplay() {
-        appState.replaySearch(id);
-    }
-
     function handleInfo() {
         showInfoModal = true;
     }
@@ -183,7 +176,8 @@
 
     function handleSearchFilter(token: { namespace: SearchNamespace; value: string }) {
         showInfoModal = false;
-        appState.ui.pushView('list');
+        appState.saved.hide();
+        appState.ui.setRoot('list');
         appState.searchState.searchToken(token.namespace, token.value);
     }
 
@@ -206,9 +200,6 @@
         <div class="row-actions">
             {#if progressIndex > 0}
                 <button class="row-action-btn" onclick={handleResume} title="Resume pg {progressIndex + 1}">&#9654;</button>
-            {/if}
-            {#if allowReplay && savedQuery}
-                <button class="row-action-btn" onclick={handleReplay} title="Replay: {savedQuery}">&#10227;</button>
             {/if}
             <button class="row-action-btn info-btn" onclick={handleInfo}>i</button>
             <button class="row-action-btn" onclick={handleFav}>{isFav ? '\u2764\uFE0F' : '\u{1F90D}'}</button>

@@ -4,6 +4,7 @@
     const searches = $derived(appState.saved.allSearches);
 
     async function handleClick(query: string) {
+        appState.saved.hide();
         await appState.searchAndPersist(() => appState.searchState.search(query));
     }
 
@@ -13,6 +14,7 @@
     }
 </script>
 
+{#if appState.saved.visible}
 <div class="saved-list">
     {#if searches.length === 0}
         <div class="result-count">No saved searches</div>
@@ -27,3 +29,4 @@
         {/each}
     {/if}
 </div>
+{/if}
