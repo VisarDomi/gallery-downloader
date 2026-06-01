@@ -475,6 +475,8 @@ html, body {
 .reader-wrapper {
     background: #000;
     min-height: 100vh;
+    padding-block: 50vh;
+    padding-block: 50svh;
     user-select: none;
     -webkit-user-select: none;
     overflow-anchor: none;
