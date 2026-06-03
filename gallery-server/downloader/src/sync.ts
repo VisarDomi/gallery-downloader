@@ -16,9 +16,11 @@ import { hitomi } from 'gallery-sources';
 import { buildFilterPolicy, classifyCandidateGallery, runPolicyCleanup, type PolicyCleanupStatus } from './policy.js';
 import { candidateFromId, type AllowedGallery, type CandidateGallery, type RejectedGallery } from './gallery-job.js';
 import { fetchHitomiGalleryInfo } from './hitomi-metadata.js';
+import { requestDeletion } from './deletion-client.js';
 
 const GALLERY_ROOT = path.join(CONFIG.WORKING_DIR, hitomi.gallerySubdir);
 const INDEX_DB_PATH = path.join(CONFIG.WORKING_DIR, 'gallery-dl', 'gallery-index.db');
+const UNWANTED_REMOTE_CHECK_CONCURRENCY = 8;
 
 export interface SyncStatus {
     phase: 'idle' | 'resolving-artists' | 'resolving-queries' | 'diffing' | 'classifying' | 'done';
@@ -33,6 +35,11 @@ export interface SyncStatus {
     allowedCount: number;
     rejectedCount: number;
     metadataErrorCount: number;
+    unwantedLocalCount: number;
+    unwantedRemoteExistingCount: number;
+    unwantedRetainedCount: number;
+    unwantedDeletedCount: number;
+    unwantedSkippedCount: number;
     cleanup: PolicyCleanupStatus;
     errors: string[];
 }
@@ -42,6 +49,7 @@ let currentSync: SyncStatus = {
     artistsResolved: 0, artistsTotal: 0,
     queriesResolved: 0, queriesTotal: 0,
     wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0, allowedCount: 0, rejectedCount: 0, metadataErrorCount: 0,
+    unwantedLocalCount: 0, unwantedRemoteExistingCount: 0, unwantedRetainedCount: 0, unwantedDeletedCount: 0, unwantedSkippedCount: 0,
     cleanup: {
         phase: 'idle',
         filterCount: 0,
@@ -57,6 +65,70 @@ let syncRunning = false;
 
 export function getSyncStatus(): SyncStatus {
     return { ...currentSync };
+}
+
+async function cleanupUnwantedLocal(unwantedIds: number[]): Promise<{
+    remoteExisting: number;
+    retained: number;
+    deleted: number;
+    skipped: number;
+}> {
+    if (unwantedIds.length === 0) {
+        log('Unwanted-local cleanup: nothing to check');
+        return { remoteExisting: 0, retained: 0, deleted: 0, skipped: 0 };
+    }
+
+    const remoteExistingIds: number[] = [];
+    let retained = 0;
+    let cursor = 0;
+    let checked = 0;
+    let nextLogAt = 100;
+
+    async function worker() {
+        while (true) {
+            const index = cursor++;
+            if (index >= unwantedIds.length) return;
+
+            const id = unwantedIds[index];
+            const metadata = await fetchHitomiGalleryInfo(id);
+            if (metadata.kind === 'ok') {
+                remoteExistingIds.push(id);
+            } else {
+                retained++;
+            }
+
+            checked++;
+            currentSync.unwantedRemoteExistingCount = remoteExistingIds.length;
+            currentSync.unwantedRetainedCount = retained;
+
+            if (checked >= nextLogAt || checked === unwantedIds.length) {
+                log(`Unwanted-local: ${checked}/${unwantedIds.length} checked (${remoteExistingIds.length} remote-existing, ${retained} retained)`);
+                nextLogAt += 100;
+            }
+        }
+    }
+
+    const workerCount = Math.min(UNWANTED_REMOTE_CHECK_CONCURRENCY, unwantedIds.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    if (remoteExistingIds.length === 0) {
+        log(`Unwanted-local cleanup: retained ${retained}, nothing to delete`);
+        return { remoteExisting: 0, retained, deleted: 0, skipped: 0 };
+    }
+
+    log(`Unwanted-local cleanup: deleting ${remoteExistingIds.length} remote-existing galleries, retaining ${retained} missing-upstream galleries`);
+    const result = await requestDeletion(remoteExistingIds);
+    for (const skipped of result.skipped) {
+        log(`Unwanted-local skip ${skipped.id}: ${skipped.reason}`);
+    }
+
+    log(`Unwanted-local cleanup: done ${result.deleted.length} deleted, ${result.skipped.length} skipped`);
+    return {
+        remoteExisting: remoteExistingIds.length,
+        retained,
+        deleted: result.deleted.length,
+        skipped: result.skipped.length,
+    };
 }
 
 function log(msg: string) {
@@ -118,6 +190,7 @@ export async function runSync(filtersPath: string, artistsPath: string, queriesP
             artistsResolved: 0, artistsTotal: 0,
             queriesResolved: 0, queriesTotal: 0,
             wantedCount: 0, newCount: 0, resumeCount: 0, alreadyLocalCount: 0, allowedCount: 0, rejectedCount: 0, metadataErrorCount: 0,
+            unwantedLocalCount: 0, unwantedRemoteExistingCount: 0, unwantedRetainedCount: 0, unwantedDeletedCount: 0, unwantedSkippedCount: 0,
             cleanup: {
                 phase: 'idle',
                 filterCount: 0,
@@ -166,8 +239,9 @@ export async function runSync(filtersPath: string, artistsPath: string, queriesP
         currentSync.newCount = diff.toDownload.length;
         currentSync.resumeCount = diff.toResume.length;
         currentSync.alreadyLocalCount = diff.alreadyLocal;
+        currentSync.unwantedLocalCount = diff.unwantedLocal.length;
 
-        log(`Diff: ${diff.toDownload.length} new, ${diff.toResume.length} to resume, ${diff.alreadyLocal} already local`);
+        log(`Diff: ${diff.toDownload.length} new, ${diff.toResume.length} to resume, ${diff.alreadyLocal} already local, ${diff.unwantedLocal.length} unwanted local`);
 
         const allIds = [...diff.toResume, ...diff.toDownload];
         if (allIds.length > 0) {
@@ -186,6 +260,12 @@ export async function runSync(filtersPath: string, artistsPath: string, queriesP
         } else {
             log('Nothing to download — up to date');
         }
+
+        const unwantedCleanup = await cleanupUnwantedLocal(diff.unwantedLocal);
+        currentSync.unwantedRemoteExistingCount = unwantedCleanup.remoteExisting;
+        currentSync.unwantedRetainedCount = unwantedCleanup.retained;
+        currentSync.unwantedDeletedCount = unwantedCleanup.deleted;
+        currentSync.unwantedSkippedCount = unwantedCleanup.skipped;
 
         const cleanup = await runPolicyCleanup(filtersPath, artistsPath, queriesPath, INDEX_DB_PATH);
         currentSync.cleanup = cleanup.status;

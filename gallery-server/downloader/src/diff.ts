@@ -12,6 +12,7 @@ export interface DiffResult {
     toDownload: number[];   // IDs not on disk at all
     toResume: number[];     // IDs with stale .downloading-* markers
     alreadyLocal: number;   // count of IDs already fully downloaded
+    unwantedLocal: number[]; // local IDs outside the current manifest
 }
 
 export function computeDiff(
@@ -57,5 +58,9 @@ export function computeDiff(
         }
     }
 
-    return { toDownload, toResume, alreadyLocal };
+    const unwantedLocal = [...localIds]
+        .filter((id) => !wantedIds.has(id) && !staleMarkers.has(id))
+        .sort((a, b) => a - b);
+
+    return { toDownload, toResume, alreadyLocal, unwantedLocal };
 }
