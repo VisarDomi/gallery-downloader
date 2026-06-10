@@ -37,7 +37,10 @@ interface OcrLookupResponse extends OcrLookupResult {
 
 interface OcrViewportImageRequest {
     pageIndex: number;
-    mediaPath: string;
+    /** Filesystem path relative to MEDIA_ROOT. Optional if mediaData is provided. */
+    mediaPath?: string;
+    /** Base64-encoded image data URL (e.g. data:image/png;base64,...). Optional if mediaPath is provided. */
+    mediaData?: string;
     left: number;
     top: number;
     width: number;
@@ -57,10 +60,16 @@ interface OcrViewportRequest {
 }
 
 interface OcrWorkerCommand {
-    action?: 'warm';
+    action?: 'warm' | 'hitomi-ocr';
     mediaRoot?: string;
     requestPath?: string;
     imagePath?: string;
+    galleryId?: number;
+    pageIndex?: number;
+    x1?: number;
+    y1?: number;
+    x2?: number;
+    y2?: number;
 }
 
 interface OcrWorkerMessage {
@@ -126,15 +135,20 @@ function isViewportRequest(body: unknown): body is OcrViewportRequest {
         if (!Array.isArray(candidate.compareBackends)) return false;
         if (!candidate.compareBackends.every((item) => typeof item === 'string')) return false;
     }
-    return candidate.images.every((item) =>
-        item
-        && typeof item.mediaPath === 'string'
-        && isFiniteNumber(item.pageIndex)
-        && isFiniteNumber(item.left)
-        && isFiniteNumber(item.top)
-        && isFiniteNumber(item.width)
-        && isFiniteNumber(item.height),
-    );
+    return candidate.images.every((item) => {
+        if (!item || typeof item !== 'object') return false;
+        const img = item as unknown as Record<string, unknown>;
+        if (!isFiniteNumber(img.pageIndex)) return false;
+        if (!isFiniteNumber(img.left)) return false;
+        if (!isFiniteNumber(img.top)) return false;
+        if (!isFiniteNumber(img.width)) return false;
+        if (!isFiniteNumber(img.height)) return false;
+        // Must have either mediaPath or mediaData
+        const hasPath = typeof img.mediaPath === 'string' && (img.mediaPath as string).length > 0;
+        const hasData = typeof img.mediaData === 'string' && (img.mediaData as string).length > 0;
+        if (!hasPath && !hasData) return false;
+        return true;
+    });
 }
 
 class OcrWorker {
@@ -372,6 +386,56 @@ export async function handleOcrLookupRequest(req: Request, res: Response) {
         return res.json(response);
     } catch (error) {
         console.error('[OCR] lookup failed', error);
+        return res.status(500).json({ error: String((error as Error)?.message ?? error) });
+    }
+}
+
+export async function handleHitomiOcrLookupRequest(req: Request, res: Response) {
+    const body = req.body;
+    if (!body || typeof body !== 'object') {
+        return res.status(400).json({ error: 'Invalid request body' });
+    }
+    const gid = Number(body.galleryId);
+    const pageIndex = Number(body.pageIndex);
+    const x1 = Number(body.x1);
+    const y1 = Number(body.y1);
+    const x2 = Number(body.x2);
+    const y2 = Number(body.y2);
+
+    if (!Number.isFinite(gid) || gid <= 0) {
+        return res.status(400).json({ error: 'galleryId must be a positive number' });
+    }
+    if (!Number.isFinite(pageIndex) || pageIndex < 1) {
+        return res.status(400).json({ error: 'pageIndex must be a positive number' });
+    }
+    if (![x1, y1, x2, y2].every(Number.isFinite)) {
+        return res.status(400).json({ error: 'x1, y1, x2, y2 must be numbers' });
+    }
+
+    const requestStarted = performance.now();
+    console.log('[OCR] hitomi lookup', JSON.stringify({ galleryId: gid, pageIndex, x1, y1, x2, y2 }));
+
+    try {
+        const result = await OCR_WORKERS['paddle-vl'].run({
+            action: 'hitomi-ocr',
+            galleryId: gid,
+            pageIndex,
+            x1,
+            y1,
+            x2,
+            y2,
+        });
+        const elapsed = Number((performance.now() - requestStarted).toFixed(2));
+        console.log('[OCR] hitomi result', JSON.stringify({
+            galleryId: gid,
+            pageIndex,
+            textLength: result.text.length,
+            lineCount: result.lines.length,
+            elapsedMs: elapsed,
+        }));
+        return res.json(result);
+    } catch (error) {
+        console.error('[OCR] hitomi lookup failed', error);
         return res.status(500).json({ error: String((error as Error)?.message ?? error) });
     }
 }

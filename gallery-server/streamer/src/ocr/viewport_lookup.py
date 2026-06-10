@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 
+import base64
 import io
 import json
 import math
@@ -10,17 +11,36 @@ from pathlib import Path
 import numpy as np
 from PIL import Image, ImageOps
 
+
 def clamp(value, low, high):
     return max(low, min(high, value))
 
 
-def resolve_media_path(media_root: Path, media_path: str) -> Path:
+def resolve_media(media_root: Path, image_entry: dict):
+    """Return (PIL.Image, src_width, src_height) from either mediaData or mediaPath."""
+    media_data = image_entry.get("mediaData")
+    if isinstance(media_data, str) and media_data:
+        # data:image/png;base64,<data>
+        if "," in media_data:
+            raw = base64.b64decode(media_data.split(",", 1)[1])
+        else:
+            raw = base64.b64decode(media_data)
+        source = Image.open(io.BytesIO(raw))
+        source = ImageOps.exif_transpose(source)
+        return source, source.size[0], source.size[1]
+
+    # Fall back to filesystem path
+    media_path = image_entry.get("mediaPath")
+    if not isinstance(media_path, str) or not media_path:
+        raise ValueError("image entry must have mediaPath or mediaData")
     candidate = (media_root / media_path.lstrip("/")).resolve()
     if media_root not in candidate.parents and candidate != media_root:
         raise ValueError(f"media path escapes root: {media_path}")
     if not candidate.exists():
         raise FileNotFoundError(f"missing media: {candidate}")
-    return candidate
+    with Image.open(candidate) as opened:
+        source = ImageOps.exif_transpose(opened)
+        return source, source.size[0], source.size[1]
 
 
 def intersect(a, b):
@@ -52,8 +72,10 @@ def validate_payload(payload):
     for image in images:
         if not isinstance(image, dict):
             raise ValueError("invalid image entry")
-        if not isinstance(image.get("mediaPath"), str) or not image["mediaPath"]:
-            raise ValueError("invalid mediaPath")
+        has_path = isinstance(image.get("mediaPath"), str) and image["mediaPath"]
+        has_data = isinstance(image.get("mediaData"), str) and image["mediaData"]
+        if not has_path and not has_data:
+            raise ValueError("image entry must have mediaPath or mediaData")
         for field in ("left", "top", "width", "height"):
             value = image.get(field)
             if not isinstance(value, (int, float)) or not math.isfinite(float(value)):
@@ -132,16 +154,13 @@ def render_viewport_image(media_root: Path, payload: dict, output_path: Path | N
         visible = intersect(viewport_rect, image_rect)
         if not visible:
             continue
-        media_path = resolve_media_path(media_root, image_entry["mediaPath"])
-        with Image.open(media_path) as opened:
-            source = ImageOps.exif_transpose(opened)
-            src_width, src_height = source.size
+        source, src_width, src_height = resolve_media(media_root, image_entry)
         visible_entries.append(
             {
                 "entry": image_entry,
                 "image_rect": image_rect,
                 "visible": visible,
-                "media_path": media_path,
+                "source": source,
                 "src_width": src_width,
                 "src_height": src_height,
             }
@@ -166,44 +185,43 @@ def render_viewport_image(media_root: Path, payload: dict, output_path: Path | N
         image_started = time.perf_counter()
         image_rect = visible_entry["image_rect"]
         visible = visible_entry["visible"]
-        media_path = visible_entry["media_path"]
-        with Image.open(media_path) as opened:
-            decode_started = time.perf_counter()
-            source = ImageOps.exif_transpose(opened).convert("RGB")
-            decode_ms += (time.perf_counter() - decode_started) * 1000
-            src_width, src_height = source.size
+        source = visible_entry["source"]
+        decode_started = time.perf_counter()
+        source = source.convert("RGB")
+        decode_ms += (time.perf_counter() - decode_started) * 1000
+        src_width, src_height = source.size
 
-            sx = clamp((visible["left"] - image_rect["left"]) * src_width / image_rect["width"], 0, src_width)
-            sy = clamp((visible["top"] - image_rect["top"]) * src_height / image_rect["height"], 0, src_height)
-            sw = clamp(visible["width"] * src_width / image_rect["width"], 0, src_width - sx)
-            sh = clamp(visible["height"] * src_height / image_rect["height"], 0, src_height - sy)
-            if sw <= 0 or sh <= 0:
-                continue
+        sx = clamp((visible["left"] - image_rect["left"]) * src_width / image_rect["width"], 0, src_width)
+        sy = clamp((visible["top"] - image_rect["top"]) * src_height / image_rect["height"], 0, src_height)
+        sw = clamp(visible["width"] * src_width / image_rect["width"], 0, src_width - sx)
+        sh = clamp(visible["height"] * src_height / image_rect["height"], 0, src_height - sy)
+        if sw <= 0 or sh <= 0:
+            continue
 
-            crop_box = (
-                int(round(sx)),
-                int(round(sy)),
-                int(round(sx + sw)),
-                int(round(sy + sh)),
-            )
-            max_source_crop_width = max(max_source_crop_width, crop_box[2] - crop_box[0])
-            max_source_crop_height = max(max_source_crop_height, crop_box[3] - crop_box[1])
-            crop_started = time.perf_counter()
-            cropped = source.crop(crop_box)
-            crop_ms += (time.perf_counter() - crop_started) * 1000
+        crop_box = (
+            int(round(sx)),
+            int(round(sy)),
+            int(round(sx + sw)),
+            int(round(sy + sh)),
+        )
+        max_source_crop_width = max(max_source_crop_width, crop_box[2] - crop_box[0])
+        max_source_crop_height = max(max_source_crop_height, crop_box[3] - crop_box[1])
+        crop_started = time.perf_counter()
+        cropped = source.crop(crop_box)
+        crop_ms += (time.perf_counter() - crop_started) * 1000
 
-            dest_left = int(round(visible["left"] * output_scale))
-            dest_top = int(round(visible["top"] * output_scale))
-            dest_width = max(1, int(round(visible["width"] * output_scale)))
-            dest_height = max(1, int(round(visible["height"] * output_scale)))
-            if cropped.size != (dest_width, dest_height):
-                resize_started = time.perf_counter()
-                cropped = cropped.resize((dest_width, dest_height), Image.Resampling.LANCZOS)
-                resize_ms += (time.perf_counter() - resize_started) * 1000
+        dest_left = int(round(visible["left"] * output_scale))
+        dest_top = int(round(visible["top"] * output_scale))
+        dest_width = max(1, int(round(visible["width"] * output_scale)))
+        dest_height = max(1, int(round(visible["height"] * output_scale)))
+        if cropped.size != (dest_width, dest_height):
+            resize_started = time.perf_counter()
+            cropped = cropped.resize((dest_width, dest_height), Image.Resampling.LANCZOS)
+            resize_ms += (time.perf_counter() - resize_started) * 1000
 
-            paste_started = time.perf_counter()
-            canvas.paste(cropped, (dest_left, dest_top))
-            paste_ms += (time.perf_counter() - paste_started) * 1000
+        paste_started = time.perf_counter()
+        canvas.paste(cropped, (dest_left, dest_top))
+        paste_ms += (time.perf_counter() - paste_started) * 1000
         image_total_ms += (time.perf_counter() - image_started) * 1000
 
     encode_ms = 0.0
