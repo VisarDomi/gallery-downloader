@@ -74,8 +74,8 @@
 
     onMount(() => {
         if (typeof window !== 'undefined') {
-            window.localStorage.removeItem('gallery-reader.ocr-backend');
-            window.localStorage.removeItem('gallery-reader.ocr-compare-backends');
+            window.localStorage.removeItem('gallery-downloader.ocr-backend');
+            window.localStorage.removeItem('gallery-downloader.ocr-compare-backends');
         }
         const viewport = window.visualViewport;
         let settleTimer: ReturnType<typeof setTimeout> | undefined;

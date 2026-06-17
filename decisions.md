@@ -131,3 +131,19 @@
 **Decision:** The archive DB (`hitomi.sqlite3`) is owned entirely by gallery-dl. The app never writes to it. Inconsistencies in the archive (e.g., unarchived galleries) are gallery-dl's problem to self-correct on next encounter.
 
 **Why:** The archive DB's format and semantics are internal to gallery-dl. Writing to it would couple the app to gallery-dl's implementation details. The app's source of truth is the disk (files exist or they don't) and the index DB (what's searchable). The archive only affects download efficiency, not correctness.
+
+## Hitomi OCR endpoint
+
+**Decision:** Added `POST /api/ocr/hitomi` to the gallery-ocr service. Accepts `{ galleryId, pageIndex, x1, y1, x2, y2 }` — downloads the exact page from hitomi's CDN using hash-based URL resolution (same logic as gallery-dl fork), crops at pixel coordinates relative to the source image, and runs paddle-vl OCR on the cropped region.
+
+**Why:** The old OCR flow required the frontend to capture viewport coordinates and send a `mediaPath` for a locally-downloaded image. Now a userscript on any device (phone, PC) can send just the gallery ID + page + crop coordinates, and the server fetches the image directly from hitomi's CDN. No local download needed.
+
+**Auth:** OCR service binds to `0.0.0.0:11559` with HTTPS and CORS `*`, reachable from LAN.
+
+**Backward compat:** The old `/api/ocr/lookup` endpoint with `viewport`+`images`+`mediaPath` still works. Also added optional `mediaData` (base64) support for callers that already have image bytes in memory.
+
+## mediaData field for viewport_lookup
+
+**Decision:** `OcrViewportImageRequest` now has an optional `mediaData` field (base64 data URL). If present, the Python code decodes it into a PIL Image instead of reading from disk via `mediaPath`.
+
+**Why:** Allows scripts that already have image bytes in memory (e.g. from fetch or canvas) to send them directly without requiring the image to exist on the server filesystem.
