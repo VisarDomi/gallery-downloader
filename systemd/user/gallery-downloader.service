@@ -1,0 +1,18 @@
+[Unit]
+Description=Gallery Downloader and Favorites API (port 7777)
+Wants=network-online.target gallery-xvfb.service
+After=network-online.target gallery-xvfb.service
+
+[Service]
+Type=simple
+EnvironmentFile=-/home/visar/Documents/work/manga/gallery-downloader/.env
+Environment=DISPLAY=:112
+Environment=GALLERY_CHROMIUM_PROFILE=/home/visar/.config/chromium-gallery
+ExecStart=/home/visar/.local/bin/gallery-downloader
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=30
+UMask=0077
+
+[Install]
+WantedBy=default.target

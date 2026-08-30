@@ -1,0 +1,23 @@
+[Unit]
+Description=Komga Comic Server (port 25600)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+Environment=KOMGA_CONFIGDIR=/home/visar/.local/share/komga
+Environment=SERVER_PORT=25600
+Environment=JAVA_TOOL_OPTIONS=-Xmx1g
+Environment=TZ=Europe/Tirane
+ExecStart=/usr/bin/java -jar /home/visar/.local/lib/komga/komga-1.26.3.jar
+Restart=on-failure
+RestartSec=5
+TimeoutStopSec=90
+SuccessExitStatus=143
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+UMask=0027
+
+[Install]
+WantedBy=default.target

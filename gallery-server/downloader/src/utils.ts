@@ -25,7 +25,7 @@ export function stripAnsi(str: string): string {
     return str.replace(/[\u001b\u009b][[()#;?]*(?:[0-9]{1,4}(?:;[0-9]{0,4})*)?[0-9A-ORZcf-nqry=><]/g, '');
 }
 
-export function getUniqueItems(newItems: string[], _currentQueue: string[], activeItem: string | null): string[] {
+export function getUniqueItems(newItems: string[], activeItem: string | null): string[] {
     const uniqueInput = [...new Set(newItems)];
     return uniqueInput.filter(u => u !== activeItem);
 }

@@ -1,4 +1,3 @@
-export type { Source, Gallery, ImageDimension } from './types.js';
-export type { SearchNamespace, SearchToken } from './query.js';
-export { SEARCH_NAMESPACES, isSearchNamespace, normalizeSearchValue, normalizeTaggedQuery, parseTaggedQuery, serializeTaggedQuery, tokenToQuery } from './query.js';
+export type { Source, SourceId } from './types.js';
 export { hitomi } from './hitomi/index.js';
+export { imhentai } from './imhentai/index.js';

@@ -1,0 +1,63 @@
+# Base filters applied to ALL resolution (artists + queries)
+# Language for all nozomi lookups
+language:japanese
+
+# Excluded tags — subtracted from both artist and query results
+-tag:anthology
+-tag:animated
+-tag:full censorship
+-tag:animal on animal
+-tag:variant set
+
+-female:mother
+-female:mind control
+-female:futanari
+-female:scat
+-female:sole dickgirl
+-female:dickgirl on female
+-female:dickgirl on dickgirl
+-female:male on dickgirl
+-female:dickgirls only
+-female:dicknipples
+-female:dick growth
+-female:full-packaged futanari
+-female:futanarization
+-female:bestiality
+-female:low bestiality
+-female:insect
+-female:insect girl
+-female:furry
+-female:human on furry
+-female:low scat
+-female:scat insertion
+-female:shemale
+-female:amputee
+-female:dismantling
+-female:guro
+-female:monster girl
+
+-male:yaoi
+-male:low scat
+-male:mind control
+-male:mind break
+-male:scat
+-male:human on furry
+-male:furry
+-male:bestiality
+-male:low bestiality
+-male:dickgirl on male
+-male:goblin
+-male:midget
+-male:monster
+-male:orc
+
+-series:dragon ball z
+-series:dragon ball
+-series:dragon ball super
+-series:one piece
+-series:naruto
+-series:bleach
+-series:hololive
+
+
+

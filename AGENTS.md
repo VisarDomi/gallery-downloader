@@ -1,32 +1,29 @@
 # Gallery Downloader
 
-Monorepo. Packages: `gallery-index`, `gallery-app` (Svelte frontend), `gallery-server` (streamer/indexer/downloader), `gallery-sources`.
+The runtime is deliberately small:
 
-Thumbnails are served directly from disk. No sprite generation.
+- `gallery-sources`: Hitomi/IMHentai download descriptors
+- `gallery-server/downloader`: HTTPS favorites API, durable queue, acquisition, and manual reconcile
+- `gallery-server/scripts`: CBZ export, Komga scan, and command wrappers
+- `systemd/user`: downloader, Gallery Xvfb `:112`, and Komga units
 
-Go scanner: `gallery-server/indexer/src/go/scanner.go`
+Ports:
 
-## Read on demand
+- `7777`: Gallery Downloader HTTPS API/status/queue UI
+- `25600`: Komga HTTP, internal scripts use `127.0.0.1`
 
-- Frontend app:
-  `~/Documents/work/manga/gallery-downloader/gallery-app/AGENTS.md`
-- Ownership rule:
-  `~/Documents/memory/ownership.md`
+Operational rules:
 
-## Logs
+- `gallery-reader` owns provider-local favorite intent.
+- Ordinary sync is non-destructive; only `npm run reconcile:favorites` deletes completed galleries/CBZs.
+- Preserve atomic checkpoint and completion ordering when modifying queue or storage code.
+- IMHentai Chromium must always close in `finally` and use the dedicated `:112` profile/display.
+- Komga notification failure must not lose a completed download; the hourly scan is the fallback.
 
-- Start debugging by checking the managed service logs.
-- Use direct `journalctl` for bounded reads:
-  `journalctl --user -u gallery-streamer.service -n 300 --no-pager`
-- For a time window, usually the specific time after a build so that you get the logs from the user tests:
-  `journalctl --user -u gallery-streamer.service --since '2026-05-09 01:13:00' --until now --no-pager`
+Start diagnosis with:
 
-## Repo notes
-
-- Ports:
-  - `11556` streamer + frontend
-  - `11557` indexer
-  - `11558` downloader
-- Gallery Downloader uses `origin: "*"` CORS.
-- Normal local-network fetches stay eager, but decoded GPU texture memory is a separate budget.
-- Rows outside the viewport may suspend decoded image state while keeping fast resume paths available.
+```bash
+npm run status:all
+journalctl --user -u gallery-downloader.service -n 300 --no-pager
+journalctl --user -u komga.service -n 300 --no-pager
+```
