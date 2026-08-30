@@ -99,7 +99,8 @@ const xmlEscape = value => String(value ?? '')
     .replaceAll('>', '&gt;')
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&apos;');
-const title = metadata.title || `${provider} ${galleryId}`;
+const japaneseTitle = typeof metadata.title_jpn === 'string' ? metadata.title_jpn.trim() : '';
+const title = japaneseTitle || metadata.title || `${provider} ${galleryId}`;
 const tags = Array.isArray(metadata.tags) ? metadata.tags.join(', ') : '';
 const languageNamesToIso = new Map([
     ['chinese', 'zh'],

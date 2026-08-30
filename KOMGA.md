@@ -42,6 +42,8 @@ Re-export is skipped when the destination is newer than every source page and `i
 
 ## Recovery and backup
 
+The exporter prefers the provider's Japanese `title_jpn` for both the book and one-shot series title, falling back to `title` only when no Japanese title exists. Eclipse displays the resulting Komga metadata; it does not choose between the provider's English and Japanese fields itself.
+
 The CBZ library is derived from loose source galleries and can be rebuilt with `--all`. Komga's database is not derived: it contains accounts, reading progress, server settings, and task state. Back up `/home/visar/.local/share/komga/` separately while Komga is stopped or with a filesystem-consistent snapshot.
 
 Plain HTTP is acceptable only on the trusted LAN. Use a trusted HTTPS reverse proxy before any remote exposure; do not port-forward `25600` or `7777` directly.

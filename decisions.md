@@ -24,6 +24,8 @@ Gallery-dl receives HTTP 403 from IMHentai even with copied browser state. A rea
 
 Loose provider files are resumable acquisition state. A provider-qualified CBZ is the stable Komga ingestion format. Duplicating full images is accepted for now because it keeps recovery and the Komga boundary simple; thumbnails are excluded from CBZs.
 
+Provider metadata keeps both `title` and `title_jpn`, but CBZ `Title` and `Series` prefer `title_jpn`. This preserves Japanese distinguishing text that Hitomi's romanized title can omit; Komga and Eclipse therefore receive Japanese as the canonical display title.
+
 ## Retired systems live in Git history
 
 The custom PWA, streamer, indexer, artist/query discovery, automatic remote discovery, automatic deletion, and server OCR are not compatibility requirements. They should not be reintroduced into the main process without a new explicit decision.
