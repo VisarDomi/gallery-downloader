@@ -11,13 +11,13 @@ function syncDirectory(directory: string): void {
 }
 
 /** Write, fsync, rename, and fsync the parent directory. */
-export function durableAtomicWriteFileSync(filePath: string, data: string | NodeJS.ArrayBufferView): void {
+export function durableAtomicWriteFileSync(filePath: string, data: string | NodeJS.ArrayBufferView, mode = 0o664): void {
     const directory = path.dirname(filePath);
     fs.mkdirSync(directory, { recursive: true });
     const temporaryPath = `${filePath}.${process.pid}.${Date.now()}.${Math.random().toString(16).slice(2)}.tmp`;
     let descriptor: number | null = null;
     try {
-        descriptor = fs.openSync(temporaryPath, 'wx', 0o664);
+        descriptor = fs.openSync(temporaryPath, 'wx', mode);
         fs.writeFileSync(descriptor, data);
         fs.fsyncSync(descriptor);
         fs.closeSync(descriptor);

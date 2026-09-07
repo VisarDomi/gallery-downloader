@@ -19,6 +19,7 @@
         "logs": "journalctl --user -u gallery-downloader.service -f",
         "status": "systemctl --user status gallery-downloader.service --no-pager",
         "status:all": "systemctl --user status gallery-downloader.service gallery-xvfb.service --no-pager",
+        "backups:status": "node gallery-server/scripts/reader-backup-status.mjs",
         "sync:favorites": "node gallery-server/scripts/favorites-command.mjs sync",
         "reconcile:favorites": "node gallery-server/scripts/favorites-command.mjs reconcile",
         "download:imhentai": "npm run download:imhentai -w downloader --"
