@@ -25,3 +25,19 @@ test('provider-local diff separates complete, partial, missing, and unwanted gal
         fs.rmSync(root, { recursive: true, force: true });
     }
 });
+
+test('source thumbnails are independently repaired without marking complete originals absent', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'gallery-thumbnails-'));
+    const root = path.join(dir, 'imhentai');
+    const gallery = path.join(root, '988447');
+    fs.mkdirSync(gallery, { recursive: true });
+    try {
+        fs.writeFileSync(path.join(gallery, 'info.json'), JSON.stringify({ count: 2 }));
+        fs.writeFileSync(path.join(gallery, 'imhentai_988447_0001.jpg'), 'one');
+        fs.writeFileSync(path.join(gallery, 'imhentai_988447_0002.png'), 'two');
+        fs.writeFileSync(path.join(gallery, 'imhentai_988447_thumb_0001.jpg'), 'thumb one');
+        assert.deepEqual(computeDiff(new Set([988447]), root).toResume, [988447]);
+        fs.writeFileSync(path.join(gallery, 'imhentai_988447_thumb_0002.jpg'), 'thumb two');
+        assert.equal(computeDiff(new Set([988447]), root).alreadyLocal, 1);
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

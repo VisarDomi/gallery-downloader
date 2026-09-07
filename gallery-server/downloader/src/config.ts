@@ -14,13 +14,11 @@ export const CONFIG = {
     PYTHON_PATH: path.join(GALLERY_DL, '.venv', 'bin', 'python3'),
     GALLERY_DL_SCRIPT: path.join(GALLERY_DL, 'gallery_dl'),
     WORKING_DIR: MEDIA_ROOT,
-    KOMGA_LIBRARY_ROOT: process.env.KOMGA_LIBRARY_ROOT
-        ?? process.env.KOGMA_LIBRARY_ROOT
-        ?? path.join(MEDIA_ROOT, 'komga'),
     BASE_ARGS: [
         ...hitomi.download.baseArgs,
-        '--download-archive',
-        hitomi.download.archivePath(MEDIA_ROOT),
+        // Files, not a stale archive entry, decide what needs repair. gallery-dl
+        // skips existing files and resumes .part files without an archive DB.
+        '-o', 'extractor.hitomi.archive=null',
     ],
     CHROMIUM: {
         EXECUTABLE: process.env.GALLERY_CHROMIUM_EXECUTABLE ?? '/usr/bin/chromium',

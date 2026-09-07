@@ -1,108 +1,33 @@
-# Gallery Downloader
+# Operations
 
-Gallery Downloader mirrors the provider-local favorites selected in the `gallery-reader` userscript, downloads missing galleries, publishes CBZ copies for Komga, and leaves reading/offline storage to Eclipse Reader.
-
-The final pipeline is:
-
-```text
-gallery-reader -> Gallery Downloader -> loose gallery + CBZ -> Komga -> Eclipse Reader
-```
-
-There is no custom PWA, streamer, indexer, discovery engine, or server OCR in the runtime.
-
-## Runtime
-
-- Gallery Downloader: `https://192.168.1.197:7777`
-- Komga inside this PC: `http://127.0.0.1:25600`
-- Komga from Eclipse Reader: `http://192.168.1.197:25600`
-- Chromium automation: Xvfb display `:112`; inspect it with `peek 112`
-
-The address `192.168.1.197` is expected to stay static. Ports `7777` and `25600` are LAN services; neither should be exposed directly to the internet. The favorites API trusts the LAN and has permissive CORS because it must accept requests from the userscript's provider origins.
-
-Managed user services:
-
-- `gallery-downloader.service`
-- `gallery-xvfb.service`
-- `komga.service`
-
-All three are enabled. User lingering keeps them running across logout and boots them without an interactive login.
+`gallery-reader` owns Hitomi/IMHentai favorites. The downloader persists snapshots in `gallery-server/favorites/`, schedules missing galleries, and serves the PWA on trusted HTTPS port 7777. Original files live in `/home/visar/Pictures/gallery-dl/<provider>/<id>/`.
 
 ```bash
 npm run build
 npm test
-npm run restart
 npm run status:all
+npm run restart
 npm run logs
-```
-
-## Favorites and downloads
-
-`gallery-reader` owns favorite intent. It sends a complete ordered snapshot to one of:
-
-```text
-PUT /api/favorites/hitomi
-PUT /api/favorites/imhentai
-```
-
-The downloader atomically stores each accepted snapshot under the ignored `gallery-server/favorites/` directory. A full snapshot is idempotent and repairs updates missed while the PC was unreachable.
-
-Receiving a snapshot or starting the service:
-
-- prunes no-longer-wanted pending entries for that provider;
-- queues missing or interrupted favorites;
-- never automatically deletes a completed gallery.
-
-The queue checkpoint, favorites snapshots, completion markers, and published metadata use durable atomic replacement. A gallery is complete only when its metadata exists and its `.downloading-*` marker is gone. An interrupted active URL is restored after service restart or power loss. Failed downloads retry with bounded exponential backoff and move to the queue tail after five failures, so they remain scheduled without blocking every later gallery.
-
-Run a non-destructive sync again from the stored snapshot:
-
-```bash
 npm run sync:favorites
-npm run sync:favorites -- imhentai
-```
-
-The downloader retains a small HTTPS queue/status page at port `7777`. Dynamic API and status responses use `Cache-Control: no-store`; this service no longer hosts the reader shell or gallery media.
-
-## Manual reconciliation
-
-Deletion is always explicit:
-
-```bash
 npm run reconcile:favorites
-npm run reconcile:favorites -- imhentai
 ```
 
-The command removes completed loose galleries and provider-qualified Komga CBZs that are absent from the selected snapshot. It also clears the matching Hitomi gallery-dl archive records so a later re-favorite can download every page. It refuses to run before the first authoritative snapshot and skips a currently active download; run it again later to remove anything skipped.
+Normal favorites sync does not delete saved galleries. Manual reconcile removes unwanted completed galleries and corresponding Hitomi archive entries; active downloads are skipped. Do not run reconcile just to repair a failed download.
 
-## IMHentai and Chromium
+Services: `gallery-downloader.service` and dedicated `gallery-xvfb.service` on display `:112`. `peek 112` exposes the headful Chromium session; the browser must close in `finally`. Originals and thumbnails must come from the source, with no locally generated substitute images.
 
-IMHentai rejects gallery-dl's HTTP fingerprint even with exported Chromium cookies. The downloader therefore opens the protected metadata page in a real headful persistent Chromium context, extracts the image manifest, closes Chromium in `finally`, and downloads the public CDN images normally.
+## Diagnostic disk incident, 2026-09-07
 
-The dedicated profile is `/home/visar/.config/chromium-gallery`. If Cloudflare needs interaction, use `peek 112`; accepted state persists in that Gallery-only profile. Do not use it for personal browsing or logins.
+Chromium's profile `/home/visar/.config/chromium-gallery/BrowserMetrics` contained 15,420 diagnostic `.pma` files totaling 60.23 GiB. These matching files were deleted and the directory set to mode `0500`; cookies and image downloads were preserved. A subsequent bounded two-gallery Chromium inspection produced no new metrics files. The permission change is reversible with `chmod 700` on that exact directory.
 
-Test one gallery without changing favorites:
+The old queue reset its retry counter forever. That loop is removed. Attempt reservations, errors and cooldown deadlines now survive restart in `/home/visar/Pictures/gallery-dl/.retry-state.json`. Temporary errors retry after 30 seconds, 2 minutes, 10 minutes, 1 hour, and 6 hours; a longer IMHentai `Retry-After` takes precedence. Six total queue attempts is the limit. Repeated non-transient 4xx responses stop after two attempts, allowing one fresh manifest extraction. Disk-full and permission failures require attention immediately. Another ready gallery can run while one waits for its cooldown.
 
-```bash
-npm run download:imhentai -- 1043741
-```
+`/downloader` shows running/retrying/Needs attention records, failed filenames, error messages, attempt counts, and the next retry time. Use Retry for one failed job or Retry all for all failed jobs (`POST /retry-failed` with optional `{ "url": "..." }`). Favorite sync and service restart do not reset failed jobs. Pause/Stop preserve queue and downloaded files; Resume respects retry cooldowns. Manually saving/injecting URLs starts a new retry budget for those URLs. Corrupt retry state fails closed instead of silently resetting budgets.
 
-## Storage
+IMHentai's old thumbnail URL construction reused the original extension. Live verification found gallery 1362775 page 5 uses original WebP but thumbnail `5t.jpg`, and gallery 988447 page 2 uses original PNG but thumbnail `2t.jpg`. Guessed `.webp`/`.png` thumbnail requests return 404; the actual JPEG thumbnail URLs return 200. Existing thumbnail files stop immediately before these pages. Older exact error messages were only broadcast over Socket.IO, not persisted. After original-only downloading was enabled, four logged HTTP 429 failures for 988447 page 101 recovered automatically and all 15 IMHentai galleries completed.
 
-Loose, resumable source galleries live at:
+Source thumbnails are restored. Hitomi uses the existing local gallery-dl extractor, with archive lookup disabled so stale archive records cannot hide missing files; gallery-dl still skips existing files and resumes partial files. IMHentai uses the same one-gallery manifest parsing approach as gallery-reader but obtains the thumbnail pattern from an actual source thumbnail URL. Only its page number is substituted; the original image extension is never reused. No Load all endpoint, no thumbnail generation, and no extra comic server. Full originals finish first and remain available if thumbnail repair fails. Transfers have timeouts, validate image responses, and atomically publish complete files.
 
-```text
-~/Pictures/gallery-dl/hitomi/<id>/
-~/Pictures/gallery-dl/imhentai/<id>/
-```
+Verified 2026-09-07 after gallery-reader build 506's iPhone test: downloader parity tests cover mixed original formats, pages beyond the first ten, explicit thumbnail overrides, query strings, GIF thumbnails, and missing-pattern failure without an original-image substitute. Existing complete thumbnail files are skipped; an interrupted file is fetched again and atomically published (not byte-range resumed). Backfill reached 100,851 thumbnail files beside 100,851 originals across 545 Hitomi and 15 IMHentai favorites. The before/after digest of original filenames, sizes, and modification times was identical. These are PC acquisition counts, not device download counts.
 
-Komga-ready copies live at:
-
-```text
-~/Pictures/komga/_oneshots/<provider>-<id>.cbz
-```
-
-CBZ publication includes only full-size numbered pages plus `ComicInfo.xml`; downloader thumbnails are not duplicated. The archive is fsynced and atomically renamed. A completion callback then asks Komga to scan, while Komga's hourly scan provides recovery if that request fails.
-
-The loose gallery and CBZ are intentionally duplicate data: loose files are the resumable provider/download state, while CBZ is the stable Komga boundary. Monitor disk usage as the favorites library grows.
-
-See [KOMGA.md](./KOMGA.md) for Komga operations and [decisions.md](./decisions.md) for the durability/ownership decisions.
+The metrics directory is protected before each managed Chromium launch, including a recreated profile; cancellation closes the browser in `finally`. The PWA now saves separate source-thumbnail packs and renders paginated strips and a content-only reader. Existing device original packs and their revisions are unchanged. See OFFLINE-TEST.md for updating, Safari tests, and installed-PWA acceptance checks.

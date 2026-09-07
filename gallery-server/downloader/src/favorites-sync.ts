@@ -1,12 +1,10 @@
 import path from 'node:path';
-import { execFileSync } from 'node:child_process';
 import type { Source, SourceId } from 'gallery-sources';
 import { CONFIG } from './config.js';
 import { computeDiff } from './diff.js';
 import {
     cleanupRetiredGalleryDirectories,
     deleteGalleries,
-    findPublishedGalleryIds,
 } from './gallery-delete.js';
 import { candidateFromId } from './gallery-job.js';
 import { readFavorites } from './favorites-store.js';
@@ -138,24 +136,13 @@ export class FavoritesSyncController {
             queueManager.retainQueuedGalleryIds(this.provider, wantedIds);
             cleanupRetiredGalleryDirectories(this.galleryRoot);
             const diff = computeDiff(wantedIds, this.galleryRoot);
-            const unwantedIds = [...new Set([
-                ...diff.unwantedLocal,
-                ...findPublishedGalleryIds(this.provider).filter(id => !wantedIds.has(id)),
-            ])].sort((a, b) => a - b);
+            const unwantedIds = diff.unwantedLocal;
             this.reconcileStatus.unwantedLocalCount = unwantedIds.length;
             if (unwantedIds.length > 0) {
                 this.reconcileStatus.phase = 'deleting';
                 const result = deleteGalleries(this.provider, unwantedIds);
                 this.reconcileStatus.deletedCount = result.deleted.length;
                 this.reconcileStatus.skippedCount = result.skipped.length;
-                if (result.deleted.length > 0) {
-                    const komgaScanner = path.resolve(import.meta.dirname, '..', '..', 'scripts', 'scan-komga.mjs');
-                    try {
-                        execFileSync(process.execPath, [komgaScanner], { stdio: 'inherit' });
-                    } catch (error) {
-                        this.log(`Komga scan notification failed; hourly scan remains active: ${String((error as Error)?.message ?? error)}`);
-                    }
-                }
             }
             this.reconcileStatus.phase = 'done';
             this.reconcileStatus.finishedAt = new Date().toISOString();

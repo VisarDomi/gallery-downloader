@@ -1,31 +1,10 @@
-# Architecture decisions
+# Pipeline boundaries
 
-## Full snapshots are the favorite protocol
-
-Each `gallery-reader` provider origin owns its own ordered favorite list. It sends complete provider-qualified snapshots instead of add/remove events. This makes updates idempotent and repairs changes made while the PC is unavailable. Numeric gallery IDs are never assumed globally unique.
-
-## The downloader is the only Gallery LAN service
-
-The downloader owns public HTTPS port `7777`, favorite persistence, queue scheduling, provider acquisition, manual deletion, CBZ publication, and Komga scan notification. The streamer and indexer were removed. Komga owns the presentation/catalog layer on `25600`, and Eclipse owns phone-native offline reading.
-
-## Snapshot sync is non-destructive
-
-Normal sync may prune stale pending work and add missing work, but never removes completed data. Exact reconciliation is a separate manual command. It deletes both loose galleries and provider-qualified CBZs, clears Hitomi archive entries first, uses a durable retirement rename, and skips active downloads.
-
-## Queue and publication survive interruption
-
-The active URL, pending URLs, pause state, and favorites snapshots use temporary-write, file-fsync, rename, and parent-directory-fsync replacement. Metadata plus the absence of `.downloading-*` is the completion boundary; Hitomi may write `info.json` before its last page. A failed synchronous CBZ export leaves the marker/checkpoint in place and causes systemd to restart the downloader so publication is retried.
-
-## IMHentai uses Chromium only for protected HTML
-
-Gallery-dl receives HTTP 403 from IMHentai even with copied browser state. A real visible Chromium context on the dedicated `:112` Xvfb display obtains the gallery manifest. Chromium is closed in `finally`; immutable CDN files are downloaded outside the browser. The persistent automation profile is separate from normal browsing and Video Platform's `:111` display.
-
-## Loose files and CBZs have different jobs
-
-Loose provider files are resumable acquisition state. A provider-qualified CBZ is the stable Komga ingestion format. Duplicating full images is accepted for now because it keeps recovery and the Komga boundary simple; thumbnails are excluded from CBZs.
-
-Provider metadata keeps both `title` and `title_jpn`, but CBZ `Title` and `Series` prefer `title_jpn`. This preserves Japanese distinguishing text that Hitomi's romanized title can omit; Komga and Eclipse therefore receive Japanese as the canonical display title.
-
-## Retired systems live in Git history
-
-The custom PWA, streamer, indexer, artist/query discovery, automatic remote discovery, automatic deletion, and server OCR are not compatibility requirements. They should not be reintroduced into the main process without a new explicit decision.
+- The userscript owns provider-local favorites. Ordinary snapshots are non-destructive. No artist/query discovery, OCR, or automatic deletion.
+- The downloader owns HTTPS port 7777, durable favorites snapshots, acquisition, queue controls, and manual reconcile. Local provider files are the authoritative downloaded content.
+- The PWA owns device-local offline storage. Keep shell-only Cache Storage, small IndexedDB checkpoints, and independent per-gallery OPFS packs. Preserve existing database identity, pack naming, and original revisions when adding thumbnails.
+- All thumbnails must be downloaded from their source. Do not resize originals or introduce image-generation dependencies. Repair missing thumbnails independently of saved originals.
+- The intended UI matches gallery-reader: paginated thumbnail strips and a content-only full-width reader. No search, saved-search, import/export, or favorite-edit heart for now. Reader navigation should use real document navigation and native swipe-back/bfcache.
+- No CBZ publishing, separate comic server, or external reader app is part of the runtime.
+- Durable writes flush content before publishing completion. Chromium closes in `finally` on dedicated display `:112` and must not accumulate persistent diagnostic files.
+- The PC queue has a persistent visible failed-job interface. Temporary failures have bounded exponential cooldowns; persistent invalid URLs need attention after a fresh extraction attempt. Failed jobs survive service restart and favorite sync without being automatically revived. Manual Retry starts a new budget. See notes.md for exact delays and controls.

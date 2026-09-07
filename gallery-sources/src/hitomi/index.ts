@@ -6,6 +6,8 @@ export const hitomi: Source = {
     metadataFile: 'info.json',
     downloadingMarker: (id: string) => `.downloading-${id}`,
     download: {
+        // Keep the local extractor's interleaved original/thumbnail numbering.
+        // Existing files are skipped, and partial downloads are resumed.
         baseArgs: ['--write-info-json'],
         archivePath: (mediaRoot: string) => `${mediaRoot}/gallery-dl/hitomi.sqlite3`,
         parseIdFromUrl: (url: string) => {

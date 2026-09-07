@@ -73,6 +73,10 @@
 
 <!-- LOGS PANEL -->
 <div class="bottom-row">
+    <div class="panel panel-half" style="overflow:auto">
+        <div class="header-row"><h2>Downloads needing attention</h2><button id="retry-all" class="btn-blue">Retry all</button></div>
+        <div id="job-state" aria-live="polite"></div>
+    </div>
     <div class="panel panel-full">
         <h2>Live Logs</h2>
         <div id="log-window">Connecting...</div>
@@ -117,12 +121,12 @@
         logBuffer.push(msg);
     });
 
-    socket.on('status_update', (status) => {
+    function showStatus(status) {
         isRunning = !status.stopped;
         isPaused = status.paused;
 
         // Only update inputs if user isn't typing in them
-        if (!focusImmediate && status.currentUrl) {
+        if (!focusImmediate) {
             elImmediate.value = status.currentUrl;
         }
         if (!focusQueue) {
@@ -134,7 +138,39 @@
         elImmediate.style.border = !isRunning ? "2px solid #d32f2f" : isPaused ? "2px solid #ff9800" : "1px solid #444";
         btnPause.textContent = isPaused ? 'RESUME' : 'PAUSE';
         btnPause.classList.toggle('paused', isPaused);
-    });
+        const rows = document.getElementById('job-state');
+        rows.replaceChildren();
+        const jobs = status.jobs || [];
+        document.getElementById('retry-all').disabled = !jobs.some(job => job.status === 'failed');
+        if (!jobs.length) rows.textContent = 'No failed or retrying downloads.';
+        for (const job of jobs) {
+            const row = document.createElement('div');
+            row.style.cssText = 'padding:12px 0;border-bottom:1px solid #444;overflow-wrap:anywhere';
+            const title = document.createElement('a');
+            title.href = job.url; title.textContent = job.url; title.style.color = '#9cf';
+            const detail = document.createElement('p');
+            detail.textContent = `${job.status === 'failed' ? 'Needs attention' : job.status} · attempt ${job.attempts}/6${job.nextRetryAt ? ' · retries ' + new Date(job.nextRetryAt).toLocaleString() : ''}`;
+            const error = document.createElement('p');
+            error.textContent = [job.asset, job.lastError].filter(Boolean).join(' · ');
+            row.append(title, detail, error);
+            if (job.status === 'failed') {
+                const retry = document.createElement('button');
+                retry.textContent = 'Retry'; retry.className = 'btn-blue';
+                retry.onclick = () => retryJobs(job.url);
+                row.append(retry);
+            }
+            rows.append(row);
+        }
+    }
+    socket.on('status_update', showStatus);
+    async function retryJobs(url) {
+        try {
+            const response = await fetch('/retry-failed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(url ? { url } : {}) });
+            if (!response.ok) throw new Error(`Retry request failed: HTTP ${response.status}`);
+            fetchStatus();
+        } catch (error) { document.getElementById('job-state').textContent = error.message; }
+    }
+    document.getElementById('retry-all').onclick = () => retryJobs();
 
     // --- Log Loop (60fps) ---
     setInterval(() => {
@@ -152,11 +188,7 @@
 
     // --- API Calls ---
     function fetchStatus() {
-        fetch('/status').then(r => r.json()).then(d => {
-            // Initial load
-            if(d.currentUrl) elImmediate.value = d.currentUrl;
-            if(d.queue) elQueue.value = d.queue.join('\n');
-        });
+        fetch('/status').then(r => r.json()).then(showStatus);
     }
 
     btnInject.onclick = async () => {

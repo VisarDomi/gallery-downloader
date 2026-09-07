@@ -3,7 +3,6 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 import { hitomi, imhentai, type Source, type SourceId } from 'gallery-sources';
 import { CONFIG } from './config.js';
-import { durableUnlinkSync } from './durable-file.js';
 
 const SOURCES: Record<SourceId, Source> = { hitomi, imhentai };
 
@@ -14,7 +13,6 @@ export interface DeletionResult {
 
 export interface DeleteGalleryOptions {
     workingDir?: string;
-    komgaLibraryRoot?: string;
 }
 
 function fsyncDirectory(directory: string): void {
@@ -45,24 +43,6 @@ export function cleanupRetiredGalleryDirectories(galleryRoot: string): void {
     }
 }
 
-export function findPublishedGalleryIds(
-    provider: SourceId,
-    komgaLibraryRoot: string = CONFIG.KOMGA_LIBRARY_ROOT,
-): number[] {
-    const prefix = `${provider}-`;
-    const cbzRoot = path.join(komgaLibraryRoot, '_oneshots');
-    try {
-        return fs.readdirSync(cbzRoot)
-            .filter(name => name.startsWith(prefix) && name.endsWith('.cbz'))
-            .map(name => Number(name.slice(prefix.length, -'.cbz'.length)))
-            .filter(Number.isSafeInteger)
-            .sort((a, b) => a - b);
-    } catch (error) {
-        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return [];
-        throw error;
-    }
-}
-
 export function deleteGalleries(
     provider: SourceId,
     ids: number[],
@@ -70,10 +50,8 @@ export function deleteGalleries(
 ): DeletionResult {
     const source = SOURCES[provider];
     const workingDir = options.workingDir ?? CONFIG.WORKING_DIR;
-    const komgaLibraryRoot = options.komgaLibraryRoot ?? CONFIG.KOMGA_LIBRARY_ROOT;
     const galleryRoot = path.join(workingDir, source.gallerySubdir);
     const archivePath = source.download.archivePath(workingDir);
-    const cbzRoot = path.join(komgaLibraryRoot, '_oneshots');
     const deleted: number[] = [];
     const skipped: { id: number; reason: string }[] = [];
 
@@ -104,7 +82,6 @@ export function deleteGalleries(
                     fsyncDirectory(galleryRoot);
                 }
 
-                durableUnlinkSync(path.join(cbzRoot, `${provider}-${id}.cbz`));
                 removeDirectoryDurably(retiredDirectory);
                 deleted.push(id);
             } catch (error) {

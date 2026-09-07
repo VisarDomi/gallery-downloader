@@ -4,6 +4,24 @@ import { imhentai } from 'gallery-sources';
 import { CONFIG } from './config.js';
 import { withHeadfulChromiumPage } from './headful-chromium.js';
 import { durableAtomicWriteFileSync } from './durable-file.js';
+import { DownloadFailure, retryAfter } from './download-failure.js';
+
+export function sourceThumbnailUrl(template: string, page: number): string {
+    const url = new URL(template);
+    if (!Number.isSafeInteger(page) || page < 1 || !/\/\d+t\.(?:jpe?g|png|webp|avif|gif)$/i.test(url.pathname)) {
+        throw new Error('Invalid source thumbnail pattern');
+    }
+    url.pathname = url.pathname.replace(/\/\d+t(?=\.)/, `/${page}t`);
+    return url.href;
+}
+
+export function completeSourceThumbnails(images: { page: number; thumbnailUrl: string }[]): void {
+    // Match gallery-reader: keep explicitly listed URLs, then derive later
+    // pages from the first source thumbnail, independently of original formats.
+    const template = images.find(image => image.thumbnailUrl)?.thumbnailUrl;
+    if (!template) throw new DownloadFailure('Source page exposes no thumbnail URL pattern', 404);
+    for (const image of images) image.thumbnailUrl ||= sourceThumbnailUrl(template, image.page);
+}
 
 interface BrowserImage {
     page: number;
@@ -72,6 +90,12 @@ async function extractManifest(url: string, expectedId: string, signal?: AbortSi
                 imageData = match ? JSON.parse(match[1]) : null;
             }
             if (!base || !imageData) throw new Error('IMHentai page did not expose its image manifest');
+            const thumbnailUrls = new Map([...document.querySelectorAll('[data-src]')].map(element => {
+                const url = element.getAttribute('data-src');
+                const match = url?.match(/\\/(\\d+)t\\.(?:jpe?g|png|webp|avif|gif)(?:\\?|$)/i);
+                return match ? [Number(match[1]), new URL(url, location.href).href] : [0, ''];
+            }));
+            thumbnailUrls.delete(0);
             const images = Object.keys(imageData).sort((a, b) => Number(a) - Number(b)).map(key => {
                 const page = Number(key);
                 const [extensionCode, width, height] = String(imageData[key]).split(',');
@@ -82,7 +106,7 @@ async function extractManifest(url: string, expectedId: string, signal?: AbortSi
                     width: Number(width) || 0,
                     height: Number(height) || 0,
                     fullUrl: base + page + '.' + extension,
-                    thumbnailUrl: base + page + 't.' + extension,
+                    thumbnailUrl: thumbnailUrls.get(page) || '',
                 };
             });
             return {
@@ -105,19 +129,48 @@ async function extractManifest(url: string, expectedId: string, signal?: AbortSi
             throw new Error(`Chromium opened gallery ${manifest.galleryId || 'unknown'} instead of ${expectedId}`);
         }
         if (manifest.images.length === 0) throw new Error(`IMHentai gallery ${expectedId} contains no images`);
+        // Same one-gallery manifest approach as gallery-reader. Thumbnails have
+        // their own source-supplied URL pattern; never use the full image suffix.
+        completeSourceThumbnails(manifest.images);
         return manifest;
-    });
+    }, signal);
 }
 
-async function downloadFile(url: string, destination: string, signal?: AbortSignal): Promise<'downloaded' | 'reused'> {
+export async function downloadFile(url: string, destination: string, signal?: AbortSignal): Promise<'downloaded' | 'reused'> {
+    try { return await acquireFile(url, destination, signal); }
+    catch (error) {
+        if (error instanceof DownloadFailure) throw error;
+        throw new DownloadFailure(`${(error as Error).message} for ${url}`, undefined, 0, path.basename(destination));
+    }
+}
+
+async function acquireFile(url: string, destination: string, signal?: AbortSignal): Promise<'downloaded' | 'reused'> {
     try {
-        if (fs.statSync(destination).size > 0) return 'reused';
+        const stat = fs.lstatSync(destination);
+        if (stat.isFile() && stat.size > 0) return 'reused';
     } catch { /* missing file */ }
 
     throwIfAborted(signal);
-    const response = await fetch(url, { signal });
-    if (!response.ok) throw new Error(`HTTP ${response.status} for ${url}`);
+    if (!url) throw new DownloadFailure(`Source thumbnail URL missing for ${path.basename(destination)}`, 404, 0, path.basename(destination));
+    const transferSignal = signal ? AbortSignal.any([signal, AbortSignal.timeout(60_000)]) : AbortSignal.timeout(60_000);
+    // Keep acquisition polite; retries must not turn rate limiting into bursts.
+    await new Promise<void>((resolve, reject) => {
+        transferSignal.throwIfAborted();
+        const aborted = () => { clearTimeout(timer); reject(transferSignal.reason); };
+        const timer = setTimeout(() => { transferSignal.removeEventListener('abort', aborted); resolve(); }, 200);
+        transferSignal.addEventListener('abort', aborted, { once: true });
+    });
+    const response = await fetch(url, { signal: transferSignal });
+    if (!response.ok) {
+        await response.body?.cancel();
+        throw new DownloadFailure(`HTTP ${response.status} for ${url}`, response.status, retryAfter(response.headers.get('retry-after')), path.basename(destination));
+    }
+    if (!response.headers.get('content-type')?.startsWith('image/')) {
+        await response.body?.cancel();
+        throw new DownloadFailure(`Non-image response for ${url}`, 403, 0, path.basename(destination));
+    }
     const bytes = Buffer.from(await response.arrayBuffer());
+    if (!bytes.length) throw new DownloadFailure(`Empty image for ${url}`, 502, 0, path.basename(destination));
     throwIfAborted(signal);
     durableAtomicWriteFileSync(destination, bytes);
     return 'downloaded';
@@ -149,12 +202,10 @@ export async function downloadImhentaiGallery(
         throwIfAborted(options.signal);
         const number = String(image.page).padStart(4, '0');
         const fullPath = path.join(directory, `imhentai_${galleryId}_${number}.${image.extension}`);
-        const thumbnailPath = path.join(directory, `imhentai_${galleryId}_thumb_${number}.${image.extension}`);
-        for (const [sourceUrl, destination] of [[image.fullUrl, fullPath], [image.thumbnailUrl, thumbnailPath]] as const) {
-            const outcome = await downloadFile(sourceUrl, destination, options.signal);
-            if (outcome === 'downloaded') downloadedFiles++;
-            else reusedFiles++;
-        }
+        // Source thumbnails need their own source URLs, not guessed extensions.
+        const outcome = await downloadFile(image.fullUrl, fullPath, options.signal);
+        if (outcome === 'downloaded') downloadedFiles++;
+        else reusedFiles++;
         log(`IMHentai ${galleryId}: ${image.page}/${manifest.images.length}`);
     }
 
@@ -177,6 +228,17 @@ export async function downloadImhentaiGallery(
     };
     const infoPath = path.join(directory, imhentai.metadataFile);
     durableAtomicWriteFileSync(infoPath, `${JSON.stringify(info, null, 2)}\n`);
+    // Full originals are complete before thumbnail acquisition. A failed preview
+    // never invalidates or causes these originals to be downloaded again.
+    for (const image of manifest.images) {
+        const number = String(image.page).padStart(4, '0');
+        const ext = image.thumbnailUrl.match(/\.(jpe?g|png|webp|avif|gif)(?:\?|$)/i)?.[1]?.toLowerCase() || 'jpg';
+        const thumbnailPath = path.join(directory, `imhentai_${galleryId}_thumb_${number}.${ext}`);
+        const outcome = await downloadFile(image.thumbnailUrl, thumbnailPath, options.signal);
+        if (outcome === 'downloaded') downloadedFiles++;
+        else reusedFiles++;
+        log(`IMHentai ${galleryId} thumbnail: ${image.page}/${manifest.images.length}`);
+    }
     log(`Saved IMHentai gallery ${galleryId}: ${manifest.images.length} pages`);
     return { galleryId, directory, downloadedFiles, reusedFiles };
 }

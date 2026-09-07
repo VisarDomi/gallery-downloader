@@ -1,4 +1,4 @@
-import { spawn, execFileSync, type ChildProcess } from 'node:child_process';
+import { spawn, type ChildProcess } from 'node:child_process';
 import fs from 'node:fs';
 import path from 'node:path';
 import { hitomi, imhentai, type Source, type SourceId } from 'gallery-sources';
@@ -8,13 +8,12 @@ import { socketService } from './socket.service.js';
 import { stripAnsi, getUniqueItems } from './utils.js';
 import type { CandidateGallery } from './gallery-job.js';
 import { durableAtomicWriteFileSync, durableUnlinkSync } from './durable-file.js';
+import { RetryState, type JobState } from './retry-state.js';
+import { DownloadFailure } from './download-failure.js';
 
 const SOURCES: Record<SourceId, Source> = { hitomi, imhentai };
 const QUEUE_DIR = path.join(CONFIG.WORKING_DIR, 'gallery-dl');
 const QUEUE_FILE = path.join(QUEUE_DIR, '.queue-backup.json');
-const MAX_RETRY_ATTEMPTS = 5;
-const RETRY_BASE_DELAY_MS = 5_000;
-const RETRY_MAX_DELAY_MS = 120_000;
 
 interface GalleryTarget {
     provider: SourceId;
@@ -56,22 +55,6 @@ function removeMarker(target: GalleryTarget): void {
     durableUnlinkSync(markerPath(target));
 }
 
-function deletePartialGallery(target: GalleryTarget): void {
-    const directory = path.join(sourceDirectory(target.source), target.galleryId);
-    try {
-        fs.rmSync(directory, { recursive: true, force: true });
-        console.log(`Deleted partial ${target.provider} gallery: ${target.galleryId}`);
-    } catch { /* already gone */ }
-
-    if (target.provider === 'hitomi') {
-        const archivePath = hitomi.download.archivePath(CONFIG.WORKING_DIR);
-        try {
-            execFileSync('sqlite3', [archivePath, `DELETE FROM archive WHERE entry LIKE 'hitomi${target.galleryId}_%'`], { stdio: 'pipe' });
-        } catch { /* archive absent or entry absent */ }
-    }
-    removeMarker(target);
-}
-
 function saveQueue(currentUrl: string | null, queue: string[], paused = false): void {
     const data = { currentUrl, queue, paused, savedAt: new Date().toISOString() };
     durableAtomicWriteFileSync(QUEUE_FILE, `${JSON.stringify(data)}\n`);
@@ -85,10 +68,11 @@ function loadQueue(): { queue: string[]; paused: boolean } | null {
         if (Array.isArray(raw.queue)) {
             urls.push(...raw.queue.filter((url): url is string => typeof url === 'string' && isSupportedGalleryUrl(url)));
         }
-        return urls.length > 0 ? { queue: getUniqueItems(urls, null), paused: raw.paused === true } : null;
+        return { queue: getUniqueItems(urls, null), paused: raw.paused === true };
     } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
         console.error(`[queue] could not restore ${QUEUE_FILE}; favorites snapshots will rebuild it`, error);
-        return null;
+        throw error;
     }
 }
 
@@ -105,6 +89,7 @@ export interface QueueStatus {
     retryAttempt: number;
     retryAt: string | null;
     queue: string[];
+    jobs: JobState[];
 }
 
 class QueueManager {
@@ -118,13 +103,7 @@ class QueueManager {
     private retryTimer: ReturnType<typeof setTimeout> | null = null;
     private retryAt: string | null = null;
     private retryAttempt = 0;
-    private readonly retryAttempts = new Map<string, number>();
-    private onComplete: ((provider: SourceId, galleryId: string) => void) | null = null;
-
-    public setOnComplete(fn: (provider: SourceId, galleryId: string) => void): void {
-        this.onComplete = fn;
-    }
-
+    private readonly retries = new RetryState(path.join(QUEUE_DIR, '.retry-state.json'));
     public getStatus(): QueueStatus {
         return {
             running: this.activeDownload !== null,
@@ -135,51 +114,30 @@ class QueueManager {
             retryAttempt: this.retryAttempt,
             retryAt: this.retryAt,
             queue: this.downloadQueue,
+            jobs: this.retries.all(),
         };
     }
 
     private emitState(): void {
         socketService.emitStatus(this.getStatus());
-        if (this.downloadQueue.length === 0 && !this.currentUrl) clearQueueFile();
+        if (this.downloadQueue.length === 0 && !this.currentUrl && !this.pauseSignal) clearQueueFile();
         else saveQueue(this.currentUrl, this.downloadQueue, this.pauseSignal);
     }
 
     private finish(target: GalleryTarget, error: Error | null): void {
         if (this.currentTarget !== target) return;
         if (error) {
+            console.error(`[download:${target.provider}:${target.galleryId}] ${error.message}`);
             socketService.emitLog(`\n--- FAILED: ${error.message} ---\n`);
+            const job = this.retries.fail(target.url, error);
+            if (error instanceof DownloadFailure && error.asset?.includes('_thumb_')) removeMarker(target);
             if (!this.isInterrupted && !this.stopSignal) {
-                const attempt = (this.retryAttempts.get(target.url) ?? 0) + 1;
-                this.activeDownload = null;
-                this.currentUrl = null;
-                this.currentTarget = null;
-
-                if (attempt <= MAX_RETRY_ATTEMPTS) {
-                    this.retryAttempts.set(target.url, attempt);
-                    if (!this.downloadQueue.includes(target.url)) this.downloadQueue.unshift(target.url);
-                    const delay = Math.min(RETRY_BASE_DELAY_MS * 2 ** (attempt - 1), RETRY_MAX_DELAY_MS);
-                    this.retryAttempt = attempt;
-                    this.retryAt = new Date(Date.now() + delay).toISOString();
-                    socketService.emitLog(`[RETRY ${attempt}/${MAX_RETRY_ATTEMPTS}] ${target.provider}:${target.galleryId} in ${Math.ceil(delay / 1000)}s\n`);
-                    this.emitState();
-                    this.retryTimer = setTimeout(() => {
-                        this.retryTimer = null;
-                        this.retryAt = null;
-                        this.retryAttempt = 0;
-                        this.emitState();
-                        this.processQueue();
-                    }, delay);
-                    return;
-                }
-
-                this.retryAttempts.delete(target.url);
-                if (!this.downloadQueue.includes(target.url)) this.downloadQueue.push(target.url);
-                socketService.emitLog(`[DEFERRED] ${target.provider}:${target.galleryId} moved to the queue tail after ${MAX_RETRY_ATTEMPTS} retries\n`);
+                if (job.status === 'retrying' && !this.downloadQueue.includes(target.url)) this.downloadQueue.push(target.url);
+                socketService.emitLog(`[${job.status}] ${target.provider}:${target.galleryId}: ${error.message}\n`);
             }
         } else {
             socketService.emitLog('\n--- FINISHED ---\n');
-            this.retryAttempts.delete(target.url);
-            if (!this.isInterrupted && !this.stopSignal) this.onComplete?.(target.provider, target.galleryId);
+            this.retries.clear(target.url);
             removeMarker(target);
         }
 
@@ -188,8 +146,9 @@ class QueueManager {
         this.currentTarget = null;
         this.retryAt = null;
         this.retryAttempt = 0;
+        this.isInterrupted = false;
         this.emitState();
-        if (!this.isInterrupted && !this.stopSignal) this.processQueue();
+        if (!this.stopSignal) this.processQueue();
     }
 
     private runGalleryDl(target: GalleryTarget): void {
@@ -197,10 +156,16 @@ class QueueManager {
             cwd: CONFIG.WORKING_DIR,
         });
         this.activeDownload = { cancel: () => child.kill('SIGINT') };
+        let lastError = '';
         child.stdout?.on('data', data => socketService.emitLog(stripAnsi(data.toString())));
-        child.stderr?.on('data', data => socketService.emitLog(`[ERR] ${stripAnsi(data.toString())}`));
+        child.stderr?.on('data', data => {
+            const message = stripAnsi(data.toString());
+            lastError = (lastError + message).slice(-4000);
+            console.error(`[gallery-dl] ${message}`);
+            socketService.emitLog(`[ERR] ${message}`);
+        });
         child.once('error', error => this.finish(target, error));
-        child.once('close', code => this.finish(target, code === 0 ? null : new Error(`gallery-dl exited with code ${code}`)));
+        child.once('close', code => this.finish(target, code === 0 ? null : new Error(`gallery-dl exited with code ${code}: ${lastError.trim()}`)));
     }
 
     private runImhentai(target: GalleryTarget): void {
@@ -216,8 +181,18 @@ class QueueManager {
     }
 
     public processQueue(): void {
-        if (this.activeDownload || this.retryTimer || this.stopSignal || this.pauseSignal) return;
-        const url = this.downloadQueue.shift();
+        if (this.activeDownload || this.stopSignal || this.pauseSignal) return;
+        this.clearRetryBackoff();
+        this.downloadQueue = this.downloadQueue.filter(url => !this.retries.blocked(url));
+        const index = this.downloadQueue.findIndex(url => (this.retries.get(url)?.nextRetryAt ?? 0) <= Date.now());
+        if (index < 0 && this.downloadQueue.length) {
+            const next = Math.min(...this.downloadQueue.map(url => this.retries.get(url)?.nextRetryAt ?? Date.now()));
+            this.retryAt = new Date(next).toISOString();
+            this.retryTimer = setTimeout(() => { this.retryTimer = null; this.processQueue(); }, Math.min(2_147_000_000, Math.max(1, next - Date.now())));
+            this.emitState();
+            return;
+        }
+        const url = index < 0 ? undefined : this.downloadQueue.splice(index, 1)[0];
         if (!url) {
             this.currentUrl = null;
             this.emitState();
@@ -234,6 +209,8 @@ class QueueManager {
 
         this.currentUrl = url;
         this.currentTarget = target;
+        this.retries.begin(url);
+        this.retryAttempt = this.retries.get(url)!.attempts;
         createMarker(target);
         this.emitState();
         socketService.emitLog(`\n--- STARTING ${target.provider}:${target.galleryId} ---\n`);
@@ -244,6 +221,7 @@ class QueueManager {
     public updateQueue(rawUrls: string[]): void {
         this.clearRetryBackoff();
         this.downloadQueue = getUniqueItems(rawUrls.filter(isSupportedGalleryUrl), this.currentUrl);
+        for (const url of this.downloadQueue) this.retries.clear(url); // Explicit manual queue edit.
         this.stopSignal = false;
         this.emitState();
         this.processQueue();
@@ -252,6 +230,7 @@ class QueueManager {
     public injectImmediate(rawUrls: string[]): void {
         const urls = getUniqueItems(rawUrls.filter(isSupportedGalleryUrl), this.currentUrl);
         if (urls.length === 0) return;
+        for (const url of urls) this.retries.clear(url);
         this.clearRetryBackoff();
         this.stopSignal = false;
 
@@ -265,10 +244,7 @@ class QueueManager {
         if (this.activeDownload) {
             this.isInterrupted = true;
             this.activeDownload.cancel();
-            setTimeout(() => {
-                this.isInterrupted = false;
-                this.processQueue();
-            }, 1_000);
+            // finish() starts the next job only after the browser/process closes.
         } else {
             this.processQueue();
         }
@@ -283,6 +259,7 @@ class QueueManager {
 
     public resume(): void {
         this.pauseSignal = false;
+        this.stopSignal = false;
         this.emitState();
         this.processQueue();
     }
@@ -290,16 +267,11 @@ class QueueManager {
     public cancel(): void {
         this.clearRetryBackoff();
         this.stopSignal = true;
-        const target = this.currentTarget;
+        if (this.currentUrl && !this.downloadQueue.includes(this.currentUrl)) this.downloadQueue.unshift(this.currentUrl);
         this.activeDownload?.cancel();
-        if (target) deletePartialGallery(target);
-        this.downloadQueue = [];
-        this.currentUrl = null;
-        this.currentTarget = null;
-        this.activeDownload = null;
-        this.pauseSignal = false;
+        this.pauseSignal = true;
         this.emitState();
-        socketService.emitLog('\n--- QUEUE STOPPED ---\n');
+        socketService.emitLog('\n--- STOPPED; queue and saved files retained ---\n');
     }
 
     public append(galleries: CandidateGallery[]): number {
@@ -307,7 +279,7 @@ class QueueManager {
         if (this.currentUrl) existingUrls.add(this.currentUrl);
         let added = 0;
         for (const gallery of galleries) {
-            if (existingUrls.has(gallery.url)) continue;
+            if (existingUrls.has(gallery.url) || this.retries.blocked(gallery.url)) continue;
             this.downloadQueue.push(gallery.url);
             existingUrls.add(gallery.url);
             added++;
@@ -339,13 +311,26 @@ class QueueManager {
     }
 
     public restore(startProcessing = true): void {
-        const saved = loadQueue();
-        if (!saved) return;
+        const saved = loadQueue() ?? { queue: [], paused: false };
         this.downloadQueue = saved.queue;
+        for (const job of this.retries.all()) {
+            if (job.status === 'retrying' && !this.downloadQueue.includes(job.url)) this.downloadQueue.push(job.url);
+        }
         this.stopSignal = false;
         this.pauseSignal = saved.paused;
         this.emitState();
         if (!saved.paused && startProcessing) this.processQueue();
+    }
+
+    public retryFailed(url?: string): number {
+        const jobs = this.retries.all().filter(job => job.status === 'failed' && (!url || job.url === url));
+        for (const job of jobs) {
+            this.retries.clear(job.url);
+            if (!this.downloadQueue.includes(job.url)) this.downloadQueue.push(job.url);
+        }
+        this.emitState();
+        this.processQueue();
+        return jobs.length;
     }
 
     private clearRetryBackoff(): void {

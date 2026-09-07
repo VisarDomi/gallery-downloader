@@ -1,7 +1,7 @@
 /**
  * Diff engine: compares wanted IDs against local state.
  *
- * Read-only access to the index DB. Produces a list of IDs to download.
+ * Read-only access to provider files. Produces a list of IDs to download.
  * Also detects partial downloads (stale .downloading-* markers).
  */
 
@@ -21,6 +21,7 @@ export function computeDiff(
 ): DiffResult {
     const localIds = new Set<number>();
     const staleMarkers = new Set<number>();
+    const provider = path.basename(galleryRoot);
     try {
         for (const f of fs.readdirSync(galleryRoot)) {
             if (f.startsWith('.downloading-')) {
@@ -30,9 +31,20 @@ export function computeDiff(
             }
             if (/^\d+$/.test(f) && fs.existsSync(path.join(galleryRoot, f, 'info.json'))) {
                 localIds.add(Number(f));
+                if (['hitomi', 'imhentai'].includes(provider)) {
+                    const names = fs.readdirSync(path.join(galleryRoot, f));
+                    const info = JSON.parse(fs.readFileSync(path.join(galleryRoot, f, 'info.json'), 'utf8'));
+                    const originals = names.filter(n => new RegExp(`^${provider}_${f}_\\d+\\.(webp|avif|jpe?g|png|gif)$`, 'i').test(n));
+                    const thumbnails = new Set(names.map(n => n.match(new RegExp(`^${provider}_${f}_thumb_(\\d+)\\.(webp|avif|jpe?g|png|gif)$`, 'i'))?.[1]).filter(Boolean));
+                    const count = Number(info.count);
+                    const complete = originals.length > 0 && (!count || originals.length === count || provider === 'hitomi' && originals.length * 2 === count);
+                    if (!complete || originals.some(n => !thumbnails.has(n.match(/_(\d+)\.[^.]+$/)![1]))) staleMarkers.add(Number(f));
+                }
             }
         }
-    } catch { /* galleryRoot doesn't exist yet */ }
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+    }
 
     const toDownload: number[] = [];
     const toResume: number[] = [];

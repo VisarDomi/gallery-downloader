@@ -5,7 +5,6 @@ After=network-online.target gallery-xvfb.service
 
 [Service]
 Type=simple
-EnvironmentFile=-/home/visar/Documents/work/manga/gallery-downloader/.env
 Environment=DISPLAY=:112
 Environment=GALLERY_CHROMIUM_PROFILE=/home/visar/.config/chromium-gallery
 ExecStart=/home/visar/.local/bin/gallery-downloader

@@ -1,13 +1,11 @@
 # Gallery Downloader
 
-Automatically downloads galleries from a .txt file managed by gallery-reader and syncs with Kogma as well
+`gallery-reader` provider favorites → HTTPS downloader → local images → offline OPFS PWA.
 
-## Why?
+- PWA: https://192.168.1.197:7777/
+- PC queue controls: https://192.168.1.197:7777/downloader
+- Operations: [notes.md](notes.md)
+- Offline app, storage and updates: [OFFLINE-TEST.md](OFFLINE-TEST.md)
+- Boundaries: [decisions.md](decisions.md)
 
-Eclipse manga reader for ios exists, and it handles Kogma, so we use gallery-downloader to populate kogma
-
-## What?
-a simple downloader/syncer
-
-## How?
-...
+The user reported fast iOS 27 beta 8 PWA startup with 7 GB saved on 2026-09-07. The app now has paginated source-thumbnail strips, offline gallery information, and a content-only reader with native Back navigation. Resume downloads adds separate thumbnail packs without invalidating existing original packs. See the update instructions above; do not clear website data.

@@ -10,19 +10,20 @@
         "build": "npm run build:shared && npm run build:downloader",
         "build:shared": "npm run build -w gallery-sources",
         "build:downloader": "npm run build -w downloader",
-        "test": "npm run test -w downloader",
+        "test": "npm run test -w downloader && npm run test:offline",
+        "test:offline": "node --test gallery-server/scripts/offline-*.test.mjs",
+        "test:ios": "node tests/ios/pwa.mjs",
         "start": "npm run build && systemctl --user start gallery-downloader.service",
         "restart": "npm run build && systemctl --user restart gallery-downloader.service",
         "stop": "systemctl --user stop gallery-downloader.service",
         "logs": "journalctl --user -u gallery-downloader.service -f",
         "status": "systemctl --user status gallery-downloader.service --no-pager",
-        "status:all": "systemctl --user status gallery-downloader.service gallery-xvfb.service komga.service --no-pager",
-        "status:komga": "systemctl --user status komga.service --no-pager",
-        "logs:komga": "journalctl --user -u komga.service -f",
-        "export:komga": "node gallery-server/scripts/export-komga-cbz.mjs",
-        "scan:komga": "node gallery-server/scripts/scan-komga.mjs",
+        "status:all": "systemctl --user status gallery-downloader.service gallery-xvfb.service --no-pager",
         "sync:favorites": "node gallery-server/scripts/favorites-command.mjs sync",
         "reconcile:favorites": "node gallery-server/scripts/favorites-command.mjs reconcile",
         "download:imhentai": "npm run download:imhentai -w downloader --"
+    },
+    "devDependencies": {
+        "userscript-ios-test": "file:../../userscript-ios-test"
     }
 }

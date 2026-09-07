@@ -4,7 +4,6 @@ import https from 'https';
 import fs from 'fs';
 import os from 'os';
 import path from 'path';
-import { execFileSync } from 'node:child_process';
 import { hitomi, imhentai, type Source, type SourceId } from 'gallery-sources';
 import * as u from './utils.js';
 import { CONFIG } from './config.js';
@@ -12,6 +11,8 @@ import { socketService } from './socket.service.js';
 import { isSupportedGalleryUrl, queueManager } from './queue.manager.js';
 import { readFavorites, writeFavorites } from './favorites-store.js';
 import { FavoritesSyncController } from './favorites-sync.js';
+import { offlineApi } from './offline-api.js';
+import { webUi } from './web-ui.js';
 
 const app = express();
 const SOURCES: Record<SourceId, Source> = { hitomi, imhentai };
@@ -26,7 +27,8 @@ function logServerInfo(port: number) {
     for (const interfaces of Object.values(os.networkInterfaces())) {
         for (const iface of interfaces ?? []) {
             if (iface.family === 'IPv4' && !iface.internal) {
-                console.log(`Queue UI: https://${iface.address}:${port}`);
+                console.log(`PWA: https://${iface.address}:${port}/`);
+                console.log(`Queue UI: https://${iface.address}:${port}/downloader`);
             }
         }
     }
@@ -53,7 +55,8 @@ app.use((req, res, next) => {
     }
     next();
 });
-app.use(express.static(path.join(u.findProjectRoot(), 'public')));
+app.use(webUi(path.join(u.findProjectRoot(), 'public')));
+app.use('/offline-api', offlineApi(path.join(CONFIG.WORKING_DIR, 'gallery-dl'), FAVORITES_DIR));
 
 app.get('/status', (_req, res) => {
     res.json(queueManager.getStatus());
@@ -92,6 +95,14 @@ app.post('/resume', (_req, res) => {
 app.post('/cancel', (_req, res) => {
     queueManager.cancel();
     res.json({ status: 'stopped' });
+});
+
+app.post('/retry-failed', (req, res) => {
+    const url = req.body?.url;
+    if (url !== undefined && (typeof url !== 'string' || !isSupportedGalleryUrl(url))) {
+        res.status(400).json({ error: 'Invalid gallery URL' }); return;
+    }
+    res.json({ retried: queueManager.retryFailed(url) });
 });
 
 for (const provider of Object.keys(SOURCES) as SourceId[]) {
@@ -139,18 +150,6 @@ for (const provider of Object.keys(SOURCES) as SourceId[]) {
         res.json(controller.getReconcileStatus());
     });
 }
-
-queueManager.setOnComplete((provider, galleryId) => {
-    const exporter = path.resolve(import.meta.dirname, '..', '..', 'scripts', 'export-komga-cbz.mjs');
-    execFileSync(process.execPath, [exporter, provider, galleryId, '--allow-active'], { stdio: 'inherit' });
-    const komgaScanner = path.resolve(import.meta.dirname, '..', '..', 'scripts', 'scan-komga.mjs');
-    try {
-        execFileSync(process.execPath, [komgaScanner], { stdio: 'inherit' });
-    } catch (error) {
-        console.error('[komga] immediate scan request failed; the hourly scan remains active', error);
-    }
-
-});
 
 server.listen(CONFIG.PORT, '0.0.0.0', () => {
     logServerInfo(CONFIG.PORT);

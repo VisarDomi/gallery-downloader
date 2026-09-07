@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#000000">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <title>Gallery Reader</title>
+  <link rel="manifest" href="/manifest.webmanifest">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header id="library-header">
+    <div class="controls"><span id="count">Favorites</span><button id="download" disabled>Download all</button></div>
+    <p id="status" role="status">Loading…</p><p id="sw-status" role="status"></p>
+  </header>
+  <main id="library"><div id="hs-grid"></div><nav id="pagination" class="hs-page-bar hs-page-bar-pag" aria-label="Pages"></nav></main>
+  <main id="reader" hidden aria-label="Offline reader"><p id="reader-message" role="status"></p><div id="reader-pages" class="hs-reader-body"></div></main>
+  <script>
+    window.bootMarks = [{ label: 'Inline JS', ms: Math.round(performance.now()) }];
+    if (/^(hitomi|imhentai)-[1-9]\d*$/.test(new URLSearchParams(location.search).get('read') || '')) {
+      document.getElementById('library-header').hidden = document.getElementById('library').hidden = true;
+      document.getElementById('reader').hidden = false;
+    }
+  </script>
+  <script type="module" src="/app.js"></script>
+</body>
+</html>
