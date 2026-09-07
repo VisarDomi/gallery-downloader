@@ -1,7 +1,7 @@
 # Reader backups before formatting an iPhone
 
 The existing HTTPS `gallery-downloader.service` on port 7777 also stores private
-backups for Gallery Reader and Manga Reader. This is separate from downloader
+backups for Gallery Reader, Manga Reader and KM Explorer. This is separate from downloader
 favorites and from the PWA's downloaded images.
 
 ## Phone flow
@@ -40,6 +40,7 @@ changes. A fresh phone cannot publish an empty favorite list before setup.
 | --- | --- |
 | Gallery Reader | IndexedDB `gallery-reader-data` v1: favorites, saved searches, pagination, and all scroll positions, migrated from its original localStorage keys |
 | Manga Reader | IndexedDB `manga-reader-compute` v2: complete `progress`, `tokens`, and `metadata` stores, with current progress schema v3 |
+| KM Explorer | IndexedDB `km-explorer` v5: complete `videos`, `details`, `channels`, and `preferences` stores; preferences migrate favorites, selected-card identity and listing scroll positions from its old localStorage |
 
 Manga progress is the latest resume position per series, not an independently
 stored list of every chapter ever read. Manga Reader has no other existing
@@ -89,8 +90,8 @@ than silently producing a reader without backups.
 
 The API is `/api/reader-backups/<reader>/<provider>` (GET) and the same path with
 `/<installation-id>` (PUT). It requires `X-Reader-Backup-Key`, serves `no-store`,
-allows CORS only from the eight configured reader origins, and limits an upload
-to 5 MB. Authenticated fetch runs inside each reader's worker; no GM grant is
+allows CORS only from the nine configured reader origins (including `https://ytboob.com`), and limits an upload
+to 5 MB for the readers or 50 MB for KM Explorer's catalog/URL caches. Authenticated fetch runs inside each reader's worker; no GM grant is
 needed. Both UI threads receive only backup counts/labels, not full snapshots.
 Slow backup HTTP requests do not block the workers' data-write queues.
 Never publish the built userscripts with
@@ -146,3 +147,14 @@ IMHentai reloaded on Back even without Gallery Reader; its HTTPS home response
 sends `Cache-Control: no-store`. See Gallery Reader's `test.md` for the isolated
 diagnostic and WebKit source. This navigation limitation does not affect backup
 or migration correctness.
+
+## KM Explorer verified phone backup — 2026-09-07
+
+Profile **iPhone before iOS downgrade**, ID `eed0074a-38dc-454f-bfc0-1b06d033ebb0`:
+503 favorites, 21 scroll positions, one selected card, 12,633 cached videos,
+4,966 cached details and 105 cached channels (about 2.9 MiB on disk).
+Migration preserved personal data, every preexisting cache record and all legacy
+localStorage keys. Every saved record was compared against Safari using canonical
+SHA-256 hashes. All 503 cards became ready; a reload retained the identity/data
+and showed zero backup notifications. Live Restore was not performed; full-store
+restore/rollback was tested in disposable browser profiles.

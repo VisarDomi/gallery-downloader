@@ -49,6 +49,23 @@ test('invalid namespaces, IDs and snapshots are rejected', () => {
     } finally { cleanup(); }
 });
 
+test('KM snapshots retain all caches, isolate phones, rotate once, and reject empty favorite loss', () => {
+    const { store, cleanup } = fixture();
+    const id = randomUUID();
+    const snapshot = { version: 1, indexedDB: { videos: [{id:'42',thumbnail:'https://example.test/thumb.jpg',pageUrl:'https://ytboob.com/fixture/'}], details: [], channels: [], preferences: { favorites:['42'], highlight:null, scroll:{'/page/2/':123} } } };
+    try {
+        const first = store.put('km-explorer', 'ytboob', id, { label:'KM phone',baseRevision:null,data:snapshot });
+        assert.deepEqual(store.put('km-explorer', 'ytboob', id, { label:'KM phone',baseRevision:null,data:snapshot }), first);
+        const second = store.put('km-explorer', 'ytboob', id, { label:'KM phone',baseRevision:first.current.revision,data:{...snapshot,indexedDB:{...snapshot.indexedDB,preferences:{...snapshot.indexedDB.preferences,favorites:['42','43']}}} });
+        assert.deepEqual(second.previous, first.current);
+        assert.throws(() => store.put('km-explorer','ytboob',id,{label:'KM phone',baseRevision:second.current.revision,data:{...snapshot,indexedDB:{...snapshot.indexedDB,preferences:{...snapshot.indexedDB.preferences,favorites:[]}}}}), /CONFLICT/);
+        const copy = store.put('km-explorer', 'ytboob', randomUUID(), { label:'Restored KM phone',baseRevision:null,data:second.current.data });
+        assert.notEqual(copy.id,id);
+        assert.deepEqual(store.read('km-explorer','ytboob',id),second);
+        assert.equal(store.list('gallery-reader','hitomi').length,0);
+    } finally { cleanup(); }
+});
+
 test('HTTP backups require private key, allow only reader origins, and never cache', async () => {
     const { root, cleanup } = fixture();
     const app = express();
@@ -66,6 +83,8 @@ test('HTTP backups require private key, allow only reader origins, and never cac
         const preflight = await fetch(base, { method: 'OPTIONS', headers: { Origin: 'https://hitomi.la', 'Access-Control-Request-Method': 'PUT', 'Access-Control-Request-Headers': 'X-Reader-Backup-Key, Content-Type' } });
         assert.equal(preflight.status, 204);
         assert.equal(preflight.headers.get('access-control-allow-origin'), 'https://hitomi.la');
+        const kmPreflight = await fetch(base.replace('gallery-reader/hitomi','km-explorer/ytboob'), {method:'OPTIONS',headers:{Origin:'https://ytboob.com','Access-Control-Request-Method':'PUT'}});
+        assert.equal(kmPreflight.headers.get('access-control-allow-origin'),'https://ytboob.com');
         const allowedButUnauthenticated = await fetch(base, { headers: { Origin: 'https://hitomi.la' } });
         assert.equal(allowedButUnauthenticated.status, 401);
         const headers = { 'X-Reader-Backup-Key': fs.readFileSync(path.join(root, 'access-key'), 'utf8'), 'Content-Type': 'application/json' };

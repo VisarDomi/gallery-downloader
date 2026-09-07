@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = fileURLToPath(new URL('../../backups/readers/', import.meta.url));
 const rows = [];
-for (const app of ['gallery-reader', 'manga-reader']) {
+for (const app of ['gallery-reader', 'manga-reader', 'km-explorer']) {
     const directory = path.join(root, app);
     if (!fs.existsSync(directory)) continue;
     for (const provider of fs.readdirSync(directory)) {
@@ -14,7 +14,9 @@ for (const app of ['gallery-reader', 'manga-reader']) {
             rows.push({ reader: app, provider, phone: value.label, id: value.id.slice(0, 8), saved: value.current.savedAt,
                 records: app === 'gallery-reader'
                     ? `${data.indexedDB.favorites.length} favorites; ${data.indexedDB.searches.length} searches`
-                    : `${data.indexedDB.progress.length} series; ${data.indexedDB.tokens.length} session records`,
+                    : app === 'km-explorer'
+                        ? `${data.indexedDB.preferences.favorites.length} favorites; ${data.indexedDB.videos.length} videos; ${data.indexedDB.details.length} details; ${data.indexedDB.channels.length} channels`
+                        : `${data.indexedDB.progress.length} series; ${data.indexedDB.tokens.length} session records`,
                 previous: value.previous?.savedAt ?? 'none',
             });
         }

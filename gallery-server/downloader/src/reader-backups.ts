@@ -8,6 +8,7 @@ import { durableAtomicWriteFileSync } from './durable-file.js';
 const providers: Record<string, string[]> = {
     'gallery-reader': ['hitomi', 'imhentai'],
     'manga-reader': ['ezmanga', 'qimanga', 'yakshacomics', 'asurascans', 'scythescans', 'luacomic'],
+    'km-explorer': ['ytboob'],
 };
 interface Snapshot { revision: string; savedAt: string; data: unknown }
 interface Backup { id: string; label: string; current: Snapshot; previous: Snapshot | null }
@@ -25,6 +26,15 @@ function privateDirectory(directory: string): void {
 function contentCount(app: string, data: unknown): number {
     const value = data as { version: number; indexedDB?: Record<string, unknown> };
     if (value?.version !== 1) throw new Error('Invalid snapshot version');
+    if (app === 'km-explorer') {
+        const state = value.indexedDB;
+        if (!state || !['videos', 'details', 'channels'].every(name => Array.isArray(state[name]))) throw new Error('Missing KM cache stores');
+        const preferences = state.preferences as { favorites: unknown; highlight: unknown; scroll: unknown };
+        if (!preferences || !Array.isArray(preferences.favorites) || !preferences.favorites.every(id => typeof id === 'string' && id.length > 0)) throw new Error('Invalid KM favorites');
+        if (!preferences.scroll || typeof preferences.scroll !== 'object' || Array.isArray(preferences.scroll) || !Object.values(preferences.scroll).every(y => Number.isFinite(y) && y >= 0)) throw new Error('Invalid KM scroll positions');
+        if (preferences.highlight !== null && (!preferences.highlight || typeof preferences.highlight !== 'object' || typeof (preferences.highlight as { id?: unknown }).id !== 'string' || typeof (preferences.highlight as { pageUrl?: unknown }).pageUrl !== 'string')) throw new Error('Invalid KM highlight');
+        return preferences.favorites.length;
+    }
     if (app === 'gallery-reader') {
         const state = value.indexedDB;
         if (!state) throw new Error('Missing gallery IndexedDB snapshot');
@@ -87,7 +97,7 @@ export function readerBackups(root: string): Router {
     if (!fs.existsSync(keyFile)) durableAtomicWriteFileSync(keyFile, randomBytes(32).toString('hex'), 0o600);
     const key = Buffer.from(fs.readFileSync(keyFile, 'utf8').trim());
     const router = Router();
-    const origins = new Set(['hitomi.la', 'imhentai.xxx', 'ezmanga.org', 'qimanga.com', 'yakshacomics.com', 'asurascans.com', 'scythescans.com', 'luacomic.org'].map(host => 'https://' + host));
+    const origins = new Set(['hitomi.la', 'imhentai.xxx', 'ezmanga.org', 'qimanga.com', 'yakshacomics.com', 'asurascans.com', 'scythescans.com', 'luacomic.org', 'ytboob.com'].map(host => 'https://' + host));
     router.use((_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
     // Worker fetch is allowed only from the reader origins; every data request still requires the private key.
     router.use(cors({ origin: (origin, done) => done(null, origins.has(origin ?? '')), methods: ['GET', 'PUT'], allowedHeaders: ['Content-Type', 'X-Reader-Backup-Key'] }));
@@ -99,7 +109,9 @@ export function readerBackups(root: string): Router {
         }
         next();
     });
-    router.use(json({ limit: '5mb' }));
+    const readerJSON = json({ limit: '5mb' });
+    const kmJSON = json({ limit: '50mb' }); // Includes URL/catalog caches, never video media.
+    router.use((req, res, next) => (req.path.startsWith('/km-explorer/') ? kmJSON : readerJSON)(req, res, next));
     router.get('/:app/:provider', (req, res) => {
         try { res.json(store.list(req.params.app, req.params.provider)); }
         catch (error) { res.status(400).json({ error: String(error) }); }
