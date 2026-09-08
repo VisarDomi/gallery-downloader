@@ -1,6 +1,10 @@
 document.getElementById('download').hidden = true;
+const nativeDocument = crypto.randomUUID();
 // Reuse the PWA UI and document navigation. Storage RPCs go to Swift actors.
 window.nativeGallery = {
+    savePosition(position) {
+        return window.webkit.messageHandlers.gallery.postMessage({ command: 'view-save', args: { document: nativeDocument, position } }).catch(() => {});
+    },
     reportStartup(marks) {
         window.webkit.messageHandlers.gallery.postMessage({ command: 'startup', args: { marks } }).catch(() => {});
     },
@@ -14,9 +18,17 @@ window.nativeGallery = {
             onmessage: null,
             async postMessage({ id, command, args = {} }) {
                 try {
-                    const result = JSON.parse(await window.webkit.messageHandlers.gallery.postMessage({ command, args }));
+                    const result = JSON.parse(await window.webkit.messageHandlers.gallery.postMessage({ command, args: { ...args, document: nativeDocument } }));
                     if (!alive) return;
-                    if (command === 'init') update(result);
+                    if (command === 'init') {
+                        if (result.redirect) { location.replace(result.redirect); return; }
+                        window.galleryViewState.receive(result.position, !!result.resumeReader);
+                        update(result);
+                        if (result.resumeReader) {
+                            setTimeout(() => location.assign(result.resumeReader), 0);
+                            return;
+                        }
+                    }
                     worker.onmessage?.({ data: { id, result } });
                 } catch (error) {
                     if (alive) worker.onmessage?.({ data: { id, error: error.message } });

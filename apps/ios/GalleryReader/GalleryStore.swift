@@ -52,6 +52,7 @@ actor GalleryStore {
     private var catalogChanged = true
     private var changedKeys = Set<String>()
     private var validatedKeys = Set<String>()
+    private var savedViewState: ViewState?
     private var startupMetrics: [String: Double] = [:]
 
 
@@ -266,6 +267,30 @@ actor GalleryStore {
         startupMetrics["launch_gallery_records"] = Double(headers.count)
         startupMetrics["launch_image_records"] = 0
         publish(headers.isEmpty ? "Connecting to your favorites…" : "Opening saved favorites…")
+    }
+
+    func viewState() -> ViewState {
+        if let savedViewState { return savedViewState }
+        if let data = try? Data(contentsOf: root.appendingPathComponent("view-state.json")),
+           let state = try? JSONDecoder().decode(ViewState.self, from: data), state.version == 1,
+           ViewPosition.route(state.lastPath) != nil,
+           ViewPosition.route(state.libraryPath)?.hasPrefix("library:") == true {
+            savedViewState = state
+        } else { savedViewState = ViewState() }
+        return savedViewState!
+    }
+
+    func saveViewPosition(_ data: Data) throws {
+        guard data.count < 100_000 else { throw ReaderError.invalidCatalog }
+        let position = try JSONDecoder().decode(ViewPosition.self, from: data)
+        try position.validate()
+        var state = viewState()
+        let route = ViewPosition.route(position.path)!
+        state.positions[route] = position
+        state.lastPath = position.path
+        if route.hasPrefix("library:") { state.libraryPath = position.path }
+        try DurableFile.write(try JSONEncoder().encode(state), to: root.appendingPathComponent("view-state.json"))
+        savedViewState = state
     }
 
     func recordStartup(_ marks: Data) throws {

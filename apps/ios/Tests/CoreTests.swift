@@ -134,6 +134,18 @@ struct CoreTests {
         let retainedItems = (retainedJSON["catalog"] as! [String: Any])["items"] as! [[String: Any]]
         try expect(retainedItems.compactMap { $0["key"] as? String } == copies.map(\.item.key), "Offline-only galleries retain display order")
         print("PASS: empty catalogs and retained offline galleries")
+        let libraryPosition = ViewPosition(path: "/?p=2", anchor: "hitomi-34", page: nil, fraction: 0.3, y: 2068, strips: ["hitomi-34": 1337])
+        let readerPosition = ViewPosition(path: "/?read=hitomi-34&page=50", anchor: nil, page: 49, fraction: 0.37, y: 54000, strips: [:])
+        try await emptyStore.saveViewPosition(JSONEncoder().encode(libraryPosition))
+        try await emptyStore.saveViewPosition(JSONEncoder().encode(readerPosition))
+        let viewReopened = GalleryStore(root: emptyStore.root, api: emptySource)
+        let view = await viewReopened.viewState()
+        try expect(view.lastPath == readerPosition.path && view.libraryPath == libraryPosition.path, "Cold restart retains the reader route and its library back destination")
+        try expect(view.positions["reader:hitomi-34"]?.fraction == 0.37 && view.positions["library:2"]?.strips["hitomi-34"] == 1337, "Reader fraction and horizontal gallery positions survive disk reload")
+        for badPath in ["https://example.com/", "//example.com/", "/?read=../secret", "/?p=-1", "/?p=2&p=3", "/?evil=1"] {
+            try expect(ViewPosition.route(badPath) == nil, "Reject invalid restoration routes")
+        }
+        print("PASS: persistent reader/library state and safe restoration routes")
         let cold = GalleryStore(root: failedRoot, api: emptySource)
         try await cold.load()
         let initiallyLoaded = await cold.loadedGalleryCount()

@@ -12,6 +12,9 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     private var updating: Task<Void, Never>?
     private var foreground = true
     private var documentReady = false
+    private var activeDocument = ""
+    private var restoreOnLaunch = true
+    private var resumeReader: String?
     private var syncing: Task<Void, Never>?
     private var warming: Task<Void, Never>?
     private var poller: Task<Void, Never>?
@@ -85,7 +88,11 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
             }
         }
     }
+    func capturePosition() {
+        webView?.evaluateJavaScript("window.galleryViewState?.save()", completionHandler: nil)
+    }
     func pause() {
+        capturePosition()
         foreground = false
         UIApplication.shared.isIdleTimerDisabled = false
         operation?.cancel()
@@ -142,13 +149,42 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         let args = body["args"] as? [String: Any] ?? [:]
         let key = args["key"] as? String ?? ""
         let index = args["index"] as? Int ?? -1
+        let document = args["document"] as? String ?? ""
+        let requestPath = (message.frameInfo.request.url?.path ?? "/") + (message.frameInfo.request.url?.query.map { "?" + $0 } ?? "")
         Task {
             do {
                 try await ensureLoaded()
                 switch command {
                 case "init":
-                    replyHandler(try await store.webSnapshot(), nil)
+                    activeDocument = document
+                    var payload = try JSONSerialization.jsonObject(with: Data(try await store.webSnapshot().utf8)) as! [String: Any]
+                    let state = await store.viewState()
+                    if let route = ViewPosition.route(requestPath), let position = state.positions[route] {
+                        payload["position"] = try JSONSerialization.jsonObject(with: JSONEncoder().encode(position))
+                    }
+                    if restoreOnLaunch {
+                        restoreOnLaunch = false
+                        if ViewPosition.route(state.lastPath)?.hasPrefix("reader:") == true {
+                            if ViewPosition.route(requestPath) == ViewPosition.route(state.libraryPath) {
+                                payload["resumeReader"] = state.lastPath
+                            } else {
+                                payload["redirect"] = state.libraryPath
+                                resumeReader = state.lastPath
+                            }
+                        } else if ViewPosition.route(requestPath) != ViewPosition.route(state.lastPath) {
+                            payload["redirect"] = state.lastPath
+                        }
+                    } else if let resumeReader {
+                        payload["resumeReader"] = resumeReader
+                        self.resumeReader = nil
+                    }
+                    replyHandler(String(decoding: try JSONSerialization.data(withJSONObject: payload), as: UTF8.self), nil)
                     knownGalleryCount = await store.galleryCount()
+                case "view-save":
+                    guard document == activeDocument else { replyHandler("{}", nil); return }
+                    let data = try JSONSerialization.data(withJSONObject: args["position"] as? [String: Any] ?? [:])
+                    try await store.saveViewPosition(data)
+                    replyHandler("{}", nil)
                 case "continue":
                     documentReady = true
                     startAutomaticWork()

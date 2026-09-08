@@ -11,6 +11,77 @@ const say = text => { $('status').textContent = text; };
 const mark = (label, ms = Math.round(performance.now())) => window.bootMarks.push({ label, ms });
 mark('App module');
 
+// Persistent positions are logical anchors; WebKit still owns live history,
+// gestures, zoom, and bfcache restoration.
+let savedPosition = null, positionReady = false, skipPositionSave = false;
+let positionTimer, heldAnchor, anchorFrame;
+const focalY = () => (window.visualViewport?.offsetTop || 0) + (window.visualViewport?.height || innerHeight) / 2;
+function capturePosition() {
+    const center = focalY();
+    const candidates = readerKey ? [...slots] : [...rows.values()];
+    let anchor = candidates.find(node => {
+        const rect = node.getBoundingClientRect(); return rect.top <= center && rect.bottom > center;
+    });
+    if (!anchor && readerKey && candidates.length) {
+        anchor = center < candidates[0].getBoundingClientRect().top ? candidates[0] : candidates.at(-1);
+    }
+    const rect = anchor?.getBoundingClientRect();
+    const strips = { ...(savedPosition?.strips || {}) };
+    if (!readerKey) for (const [key, row] of rows) {
+        const strip = row.querySelector('.hs-row'); if (strip) strips[key] = strip.scrollLeft;
+    }
+    const page = readerKey && anchor ? anchor.index : null;
+    if (page !== null) history.replaceState(null, '', readUrl(readerKey, page));
+    return { path: location.pathname + location.search, anchor: readerKey ? null : anchor?.galleryItem.key || null,
+        page, fraction: rect ? Math.max(0, Math.min(1, (center - rect.top) / rect.height)) : 0,
+        y: Math.max(0, scrollY), strips: readerKey ? {} : strips };
+}
+function savePosition() {
+    clearTimeout(positionTimer); positionTimer = undefined;
+    if (!positionReady || suspended || skipPositionSave) return Promise.resolve();
+    const position = capturePosition();
+    return window.nativeGallery?.savePosition(position) || Promise.resolve();
+}
+function schedulePositionSave() {
+    if (!positionTimer) positionTimer = setTimeout(savePosition, 150);
+}
+function alignAnchor() {
+    if (!heldAnchor?.node.isConnected) return;
+    const rect = heldAnchor.node.getBoundingClientRect();
+    const y = scrollY + rect.top + rect.height * heldAnchor.fraction - focalY();
+    if (Math.abs(y - scrollY) > 0.5) scrollTo(0, Math.max(0, y));
+}
+function restorePosition() {
+    if (positionReady) return;
+    if (savedPosition) {
+        const node = readerKey ? $(`page-${(savedPosition.page ?? 0) + 1}`) : rows.get(savedPosition.anchor);
+        if (node) { heldAnchor = { node, fraction: savedPosition.fraction }; alignAnchor(); }
+        else scrollTo(0, savedPosition.y);
+    }
+    positionReady = true;
+    requestAnimationFrame(() => { alignAnchor(); schedulePositionSave(); });
+}
+window.galleryViewState = {
+    receive(position, skipSaving) {
+        skipPositionSave = skipSaving;
+        if (positionReady) return; // Existing bfcache document already has its exact position.
+        if (position && (!readerKey || position.path === location.pathname + location.search)) savedPosition = position;
+    },
+    save: savePosition
+};
+const positionResize = new ResizeObserver(() => {
+    if (!heldAnchor) return;
+    cancelAnimationFrame(anchorFrame); anchorFrame = requestAnimationFrame(alignAnchor);
+});
+positionResize.observe($('reader-pages'));
+for (const type of ['touchstart', 'pointerdown', 'wheel', 'keydown']) {
+    addEventListener(type, () => { heldAnchor = null; }, { passive: true });
+}
+addEventListener('scroll', schedulePositionSave, { passive: true, capture: true });
+addEventListener('scrollend', () => { void savePosition(); }, { passive: true, capture: true });
+addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void savePosition(); });
+addEventListener('click', event => { if (event.target.closest?.('a[href]')) void savePosition(); }, { capture: true });
+
 function call(command, args) {
     if (!worker || suspended) return Promise.reject(new Error('App suspended'));
     return new Promise((resolve, reject) => {
@@ -146,6 +217,7 @@ async function populateRow(row, item) {
             link.append(img); strip.append(link); slots.add(link);
         });
         row.querySelector('.row-message')?.remove(); row.prepend(strip);
+        if (savedPosition?.strips?.[item.key]) strip.scrollLeft = savedPosition.strips[item.key];
         for (const slot of strip.children) observer.observe(slot);
     } catch (error) {
         if (!suspended && row.isConnected) row.querySelector('.row-message').textContent = `${item.title} · ${error.message}`;
@@ -179,7 +251,8 @@ function renderCatalog() {
         link.className = page === current ? 'hs-page-active' : 'hs-page-link';
         if (page === current) link.setAttribute('aria-current', 'page'); pagination.append(link);
     }
-    $('pagination').replaceChildren(pagination); observeImages();
+    $('pagination').replaceChildren(pagination);
+    restorePosition(); observeImages();
     mark('Catalog rows rendered');
     for (const item of items) enqueue(() => populateRow(rows.get(item.key), item), true);
 }
@@ -238,21 +311,13 @@ async function openReader() {
             const selected = Math.max(0, Math.min(available - 1, Math.floor(Number(params.get('page')) || 1) - 1));
             if (!window.nativeGallery && Number(params.get('page')) > state.downloaded) $('reader-message').textContent = `Page ${params.get('page')} is not saved. Only the first ${state.downloaded} pages are available.`;
             const target = $(`page-${selected + 1}`);
-            if (target) window.scrollTo(0, Math.max(0, target.offsetTop - window.innerHeight / 2));
+            if (target && !savedPosition) window.scrollTo(0, Math.max(0, target.offsetTop - window.innerHeight / 2));
+            restorePosition();
         }
         observeImages();
     } catch (error) { $('reader-message').textContent = error.message; }
     finally { openingReader = false; }
 }
-let scrollTimer;
-window.addEventListener('scroll', () => {
-    if (!readerKey || !renderedReader) return;
-    clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => {
-        const slot = document.elementFromPoint(innerWidth / 2, innerHeight / 2)?.closest('.page');
-        if (slot) history.replaceState(null, '', readUrl(readerKey, slot.index));
-    }, 150);
-}, { passive: true });
 async function start(restoring = false) {
     suspended = false; mark(restoring ? 'bfcache resumed' : 'UI yielded a paint');
     worker = window.nativeGallery ? window.nativeGallery.createWorker() : new Worker('/worker.js', { type: 'module' });
@@ -293,7 +358,7 @@ async function start(restoring = false) {
         else if (restoring) {
             observeImages();
             for (const row of rows.values()) enqueue(() => populateRow(row, row.galleryItem), true);
-            pump();
+            pump(); schedulePositionSave();
         }
     } catch (error) { if (readerKey) $('reader-message').textContent = error.message; else say(error.message); }
     requestAnimationFrame(() => requestAnimationFrame(() => window.nativeGallery?.continueLoading()));
@@ -309,8 +374,9 @@ $('download').onclick = async () => {
     } catch (error) { active = false; totals(); say(error.message); }
 };
 window.addEventListener('pagehide', () => {
+    void savePosition();
     suspended = true; worker?.terminate(); worker = undefined; active = false;
-    observer?.disconnect(); rowObserver?.disconnect(); clearTimeout(scrollTimer); work.length = 0; backgroundWork.length = 0;
+    observer?.disconnect(); rowObserver?.disconnect(); clearTimeout(positionTimer); positionTimer = undefined; work.length = 0; backgroundWork.length = 0;
     // Keep DOM, dimensions, blob URLs and both scroll axes for bfcache. Release
     // IDB/write handles by terminating the worker, without blocking navigation.
     for (const slot of slots) { slot.token = (slot.token || 0) + 1; slot.loading = false; }

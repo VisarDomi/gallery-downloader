@@ -13,6 +13,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.makeKeyAndVisible()
         return true
     }
+    func applicationWillResignActive(_ application: UIApplication) { browser.capturePosition() }
     func applicationDidBecomeActive(_ application: UIApplication) { browser.resume() }
     func applicationDidEnterBackground(_ application: UIApplication) { browser.pause() }
 }

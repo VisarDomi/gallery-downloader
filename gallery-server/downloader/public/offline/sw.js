@@ -1,5 +1,5 @@
 // Only these small application files enter Cache Storage. Never gallery bytes.
-const CACHE = 'gallery-offline-shell-v7';
+const CACHE = 'gallery-offline-shell-v8';
 const SHELL = ['./', './index.html', './style.css', './app.js', './worker.js', './storage.js', './manifest.webmanifest', './icon.svg'];
 const urls = new Set(SHELL.map(p => new URL(p, self.registration.scope).href));
 self.addEventListener('install', event => {

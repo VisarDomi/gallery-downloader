@@ -85,9 +85,13 @@ loads favorites and saves their images. Scroll to page 2, open a gallery, and us
 edge swipes and zoom. Turn off Wi-Fi/mobile data and reopen to test offline reads.
 
 The app pauses downloads on backgrounding and automatically resumes
-when brought back to the foreground. It has no background-transfer service, sync/deletion UI, or full
-history restoration after process termination. WebKit owns in-session history
-and back/forward scroll restoration. Personal Team signing must be renewed before
+when brought back to the foreground. It has no background-transfer service or sync/deletion UI. The current library
+page, vertical gallery anchor, horizontal thumbnail strips, and reader image plus
+fraction are checkpointed in the small `view-state.json`, throttled during scroll
+and flushed on navigation/backgrounding. Cold launch restores the last view. A
+restored reader is loaded after its saved library document, giving WebKit a real
+back entry. WebKit still owns in-session history, gestures, and bfcache scroll
+restoration. Explicit thumbnail selections override a saved reader position. Personal Team signing must be renewed before
 its profile expires; updating the same app bundle preserves downloaded files.
 
 ## Checks
