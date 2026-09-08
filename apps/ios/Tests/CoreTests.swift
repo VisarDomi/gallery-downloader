@@ -9,10 +9,18 @@ struct CoreTests {
     static func main() async throws {
         let items = (1...40).map { i in GalleryItem(key: "hitomi-\(i)", provider: "hitomi", id: String(i), title: "Test", pages: i, ready: i != 1) }
         let catalog = Catalog(version: 1, items: items.reversed() + [items[3]])
-        let selected = try ImportSelection.smallest(catalog, limit: 30)
-        try expect(selected.count == 30 && selected.first?.pages == 2 && selected.last?.pages == 31, "Select 30 smallest ready galleries, deduplicated")
-        let all = try ImportSelection.smallest(catalog)
-        try expect(all.count == 39 && all.last?.pages == 40, "Default import includes every completed gallery beyond the old limit")
+        let selected = try CatalogSelection.completed(catalog, limit: 30)
+        try expect(selected.count == 30 && selected.first?.pages == 40 && selected.last?.pages == 11, "Selection preserves source order while deduplicating and limiting")
+        let all = try CatalogSelection.completed(catalog)
+        try expect(all.count == 39 && all.last?.pages == 2, "Default import includes every completed gallery beyond the old limit")
+        let sourceOrder = [items[8], items[2], items[6]]
+        let previousOrder = [items[6], items[2], items[8], items[10]]
+        let reordered = CatalogSelection.ordered(remote: sourceOrder, saved: previousOrder)
+        try expect(reordered.map(\.key) == [items[8], items[2], items[6], items[10]].map(\.key), "Sync follows source order and retains offline-only galleries at the end")
+        let newestFirst = [items[19]] + sourceOrder
+        let refreshed = CatalogSelection.ordered(remote: newestFirst, saved: reordered)
+        try expect(refreshed.first?.key == items[19].key && refreshed.count == 5, "A new first favorite appears first without duplicating saved entries")
+        try expect(CatalogSelection.ordered(remote: newestFirst, saved: refreshed) == refreshed, "Unchanged source order stays stable across sync")
         let json = #"{"key":"hitomi-1","title":"Test","revision":"aaaaaaaaaaaaaaaaaaaaaaaa","pages":[{"name":"hitomi_1_1.jpg","size":4,"offset":0,"url":"/offline-api/hitomi/1/pages/hitomi_1_1.jpg"}],"bytes":4}"#
         let manifest = try JSONDecoder().decode(GalleryManifest.self, from: Data(json.utf8))
         try manifest.validate(for: items[0])
@@ -122,7 +130,7 @@ struct CoreTests {
             print("PASS: incremental sync, concurrent transfer deduplication, sparse thumbnail restart, compact checkpoints, peak=\(stats.peak)")
             let fullStore = GalleryStore(root: root.appendingPathComponent("full-library"), api: api)
             _ = try await fullStore.load()
-            let expected = try ImportSelection.smallest(await api.catalog())
+            let expected = try CatalogSelection.completed(await api.catalog())
             let fullRefresh = Task { try await fullStore.refreshCatalog() }
             for await event in fullStore.events {
                 if !event.library.galleries.isEmpty {

@@ -3,7 +3,9 @@
 The app automatically loads **all completed favorites** and downloads their images
 automatically. It checks for new favorites on launch, reconnection, and every
 30 seconds while foregrounded. Saved galleries are retained and reused; sync
-never deletes them. There is no separate import or download step. The existing offline PWA supplies both library and reader views, with
+never deletes them. Display order follows the PC favorites snapshot exactly
+(within its Hitomi-then-IMHentai grouping); offline-only saved entries are retained
+after current favorites. Download completion order never determines display order. There is no separate import or download step. The existing offline PWA supplies both library and reader views, with
 25 galleries per library page. It is hosted in `WKWebView` with WebKit's own
 back/forward navigation gestures and unrestricted viewport zoom. There are no
 custom swipe, pinch, or double-tap recognizers.

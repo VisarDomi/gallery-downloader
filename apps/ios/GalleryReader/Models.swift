@@ -124,15 +124,20 @@ enum ReaderError: LocalizedError {
     }
 }
 
-enum ImportSelection {
-    static func smallest(_ catalog: Catalog, limit: Int? = nil) throws -> [GalleryItem] {
+enum CatalogSelection {
+    static func completed(_ catalog: Catalog, limit: Int? = nil) throws -> [GalleryItem] {
         guard catalog.version == 1 else { throw ReaderError.invalidCatalog }
         var seen = Set<String>()
         let eligible = catalog.items.filter { $0.ready && $0.pages > 0 && seen.insert($0.key).inserted }
-        let result = eligible.sorted {
-            $0.pages == $1.pages ? $0.key < $1.key : $0.pages < $1.pages
-        }.prefix(limit ?? eligible.count)
+        let result = eligible.prefix(limit ?? eligible.count)
         guard !result.isEmpty else { throw ReaderError.noGalleries }
         return Array(result)
+    }
+
+    static func ordered(remote: [GalleryItem], saved: [GalleryItem]) -> [GalleryItem] {
+        let currentKeys = Set(remote.map(\.key))
+        // Mirror the source list. Retain offline-only entries after current
+        // favorites; ordinary sync never deletes the user's saved galleries.
+        return remote + saved.filter { !currentKeys.contains($0.key) }
     }
 }

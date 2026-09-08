@@ -238,11 +238,10 @@ actor GalleryStore {
         syncing = true
         defer { syncing = false; publish(message) }
         do {
-            let remote = try ImportSelection.smallest(await api.catalog(), limit: limit)
-            let known = Set(catalogItems.map(\.key))
-            let additions = remote.filter { !known.contains($0.key) }
-            if !additions.isEmpty { catalogChanged = true }
-            catalogItems += additions
+            let remote = try CatalogSelection.completed(await api.catalog(), limit: limit)
+            let ordered = CatalogSelection.ordered(remote: remote, saved: catalogItems)
+            if ordered != catalogItems { catalogChanged = true }
+            catalogItems = ordered
             try DurableFile.write(try JSONEncoder().encode(catalogItems), to: root.appendingPathComponent("catalog.json"))
             // Paint the entire entry list from the small catalog immediately.
             // Manifests and visible thumbnails can arrive independently afterward.
