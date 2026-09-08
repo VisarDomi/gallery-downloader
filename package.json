@@ -22,7 +22,9 @@
         "backups:status": "node gallery-server/scripts/reader-backup-status.mjs",
         "sync:favorites": "node gallery-server/scripts/favorites-command.mjs sync",
         "reconcile:favorites": "node gallery-server/scripts/favorites-command.mjs reconcile",
-        "download:imhentai": "npm run download:imhentai -w downloader --"
+        "download:imhentai": "npm run download:imhentai -w downloader --",
+        "build:ios:native": "bash apps/ios/scripts/build.sh",
+        "test:ios:native": "bash apps/ios/scripts/test.sh"
     },
     "devDependencies": {
         "userscript-ios-test": "file:../../userscript-ios-test"

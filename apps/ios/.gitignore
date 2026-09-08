@@ -1,0 +1,5 @@
+Resources/LocalCA.cer
+Resources/Web/
+build/
+*.xcuserstate
+xcuserdata/

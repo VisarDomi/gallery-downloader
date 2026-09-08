@@ -4,7 +4,7 @@ const readerKey = /^(hitomi|imhentai)-[1-9]\d*$/.test(params.get('read') || '') 
 const pageNumber = Math.max(1, Math.floor(Number(params.get('p')) || 1));
 const readUrl = (key, index) => `/?read=${key}&page=${index + 1}`;
 let worker, rpcId = 0, catalog = [], downloads = new Map(), active = false, supported = false, suspended = false;
-let gridVersion = '', renderedReader = false, observer;
+let gridVersion = '', renderedReader = false, openingReader = false, observer;
 const pending = new Map(), rows = new Map(), slots = new Set();
 const size = bytes => `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 const say = text => { $('status').textContent = text; };
@@ -23,7 +23,7 @@ function totals() {
     const thumbs = catalog.map(item => downloads.get(`${item.key}:thumbs`)).filter(Boolean);
     $('count').textContent = `${catalog.length} Favorites`;
     $('download').textContent = active ? 'Stop' : downloads.size ? 'Resume downloads' : 'Download all';
-    $('download').disabled = !supported || !catalog.length;
+    $('download').disabled = !supported || (!catalog.length && !window.nativeGallery);
     if (!active) say(`${originals.filter(s => s.complete).length}/${catalog.length} saved · ${size([...originals, ...thumbs].reduce((n, s) => n + s.bytes, 0))} · ${thumbs.filter(s => s.complete).length} thumbnail sets`);
 }
 function release(slot) {
@@ -52,11 +52,12 @@ async function loadImage(slot) {
     slot.loading = true;
     const img = slot.querySelector('img');
     try {
-        let blob;
-        if (readerKey) ({ blob } = await call('page', { index: slot.index }));
+        let blob, localUrl;
+        if (readerKey) ({ blob, url: localUrl } = await call('page', { key: readerKey, index: slot.index }));
         else {
-            try { ({ blob } = await call('thumbnail', { key: slot.key, index: slot.index })); }
+            try { ({ blob, url: localUrl } = await call('thumbnail', { key: slot.key, index: slot.index })); }
             catch {
+                if (window.nativeGallery) throw new Error('Thumbnail not saved');
                 if (!slot.source || navigator.onLine === false) throw new Error('Thumbnail not saved');
                 const response = await fetch(slot.source, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
                 if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) throw new Error('Thumbnail unavailable');
@@ -64,14 +65,25 @@ async function loadImage(slot) {
             }
         }
         if (token !== slot.token || suspended || !slot.isConnected) return;
-        slot.url = URL.createObjectURL(blob);
+        slot.url = localUrl || URL.createObjectURL(blob);
         img.onload = () => {
+            slot.retries = 0;
             if (readerKey && token === slot.token) {
                 slot.style.aspectRatio = `${img.naturalWidth}/${img.naturalHeight}`;
                 slot.querySelector('.page-error')?.remove();
             }
         };
-        img.onerror = () => { if (readerKey && token === slot.token) pageError(slot, 'Saved image could not be decoded.'); };
+        img.onerror = () => {
+            if (token !== slot.token) return;
+            if (readerKey) pageError(slot, 'Saved image could not be decoded.');
+            if (window.nativeGallery) {
+                slot.url = undefined;
+                slot.retries = (slot.retries || 0) + 1;
+                if (slot.retries <= 3) setTimeout(() => {
+                    if (!suspended && slot.visible && slot.isConnected && token === slot.token) enqueue(() => loadImage(slot));
+                }, 1000 * 2 ** (slot.retries - 1));
+            }
+        };
         img.src = slot.url;
     } catch (error) {
         if (token === slot.token && !suspended) {
@@ -178,6 +190,8 @@ async function showInfo(row, item) {
     } catch (error) { textRow('Status', error.message); }
 }
 async function openReader() {
+    if (openingReader) return;
+    openingReader = true;
     $('library').hidden = $('library-header').hidden = true; $('reader').hidden = false;
     if (!renderedReader) $('reader-message').textContent = 'Opening saved pages…';
     try {
@@ -196,10 +210,20 @@ async function openReader() {
             const selected = Math.max(0, Math.min(state.downloaded - 1, Math.floor(Number(params.get('page')) || 1) - 1));
             if (Number(params.get('page')) > state.downloaded) $('reader-message').textContent = `Page ${params.get('page')} is not saved. Only the first ${state.downloaded} pages are available.`;
             const target = $(`page-${selected + 1}`);
-            window.scrollTo(0, Math.max(0, target.offsetTop - window.innerHeight / 2));
+            if (target) window.scrollTo(0, Math.max(0, target.offsetTop - window.innerHeight / 2));
+        }
+        if (window.nativeGallery && state.downloaded > slots.size) {
+            for (let index = slots.size; index < state.downloaded; index++) {
+                const page = manifest.pages[index], slot = document.createElement('div'), img = new Image();
+                slot.className = 'page'; slot.index = index; slot.id = `page-${index + 1}`;
+                slot.style.aspectRatio = page.width > 0 && page.height > 0 ? `${page.width}/${page.height}` : '2/3';
+                img.className = 'hs-reader-img'; img.alt = ''; img.decoding = 'async';
+                slot.append(img); slots.add(slot); $('reader-pages').append(slot);
+            }
         }
         observeImages();
     } catch (error) { $('reader-message').textContent = error.message; }
+    finally { openingReader = false; }
 }
 let scrollTimer;
 window.addEventListener('scroll', () => {
@@ -212,7 +236,7 @@ window.addEventListener('scroll', () => {
 }, { passive: true });
 async function start(restoring = false) {
     suspended = false; mark(restoring ? 'bfcache resumed' : 'UI yielded a paint');
-    worker = new Worker('/worker.js', { type: 'module' });
+    worker = window.nativeGallery ? window.nativeGallery.createWorker() : new Worker('/worker.js', { type: 'module' });
     worker.onerror = error => {
         for (const request of pending.values()) request.reject(new Error(error.message)); pending.clear();
         active = false; supported = false; totals(); say(`Storage error: ${error.message}`);
@@ -228,12 +252,19 @@ async function start(restoring = false) {
             catalog = data.catalog.items;
             if (data.downloads) downloads = new Map(data.downloads.map(s => [s.key, s])); renderCatalog();
         }
+        if (data.type === 'native-progress') {
+            for (const state of data.states) downloads.set(state.key, state);
+            if (readerKey && renderedReader && (downloads.get(readerKey)?.downloaded || 0) > slots.size) void openReader();
+        }
         if (data.type === 'progress') {
             downloads.set(data.state.key, data.state); totals();
             if (active) say(`${data.state.key.replace(':thumbs', ' thumbnails')} · ${data.state.downloaded}/${data.state.total}`);
         }
         if (data.type === 'previews-ready') {
-            for (const slot of slots) if (slot.key === data.key && slot.visible) { release(slot); enqueue(() => loadImage(slot)); }
+            for (const slot of slots) if (slot.key === data.key && slot.visible) {
+                if (window.nativeGallery) { if (!slot.url && !slot.loading) enqueue(() => loadImage(slot)); }
+                else { release(slot); enqueue(() => loadImage(slot)); }
+            }
         }
         if (data.type === 'download-status') { active = data.running; totals(); say(data.message); }
     };
@@ -252,7 +283,8 @@ $('download').onclick = async () => {
         if (active) { $('download').disabled = true; await call('stop'); }
         else {
             active = true; totals(); say('Downloading thumbnails, then remaining pages…');
-            void navigator.storage.persist?.().catch(() => {}); await call('download');
+            if (!window.nativeGallery) void navigator.storage.persist?.().catch(() => {});
+            await call('download');
         }
     } catch (error) { active = false; totals(); say(error.message); }
 };
@@ -273,5 +305,6 @@ function prepareShell() {
         await navigator.serviceWorker.ready; notice();
     }).catch(error => { $('sw-status').textContent = `Offline shell unavailable: ${error.message}`; });
 }
-if (!isSecureContext || !('serviceWorker' in navigator)) say('Trusted HTTPS is required.');
+if (window.nativeGallery) requestAnimationFrame(() => requestAnimationFrame(() => { void start(); }));
+else if (!isSecureContext || !('serviceWorker' in navigator)) say('Trusted HTTPS is required.');
 else requestAnimationFrame(() => requestAnimationFrame(() => { void start(); prepareShell(); }));
