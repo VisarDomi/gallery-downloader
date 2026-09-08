@@ -7,3 +7,5 @@ backups/
 gallery-server/gallery-dl/
 gallery-server/favorites/
 .env
+apps/ios/refresh.local.json
+__pycache__/

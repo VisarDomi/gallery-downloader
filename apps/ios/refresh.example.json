@@ -1,0 +1,25 @@
+{
+  "root": "/Users/YOUR_USER/Developer/gallery-downloader",
+  "app": "apps/ios/build/Debug-iphoneos/GalleryReader.app",
+  "team": "YOUR_TEAM_ID",
+  "bundleIds": [
+    "com.visar.GalleryReader"
+  ],
+  "device": "YOUR_IPHONE_UDID",
+  "profileCache": "/Users/YOUR_USER/Library/Developer/Xcode/UserData/Provisioning Profiles",
+  "inputs": [
+    "apps/ios/GalleryReader",
+    "apps/ios/GalleryReader.xcodeproj",
+    "apps/ios/Resources",
+    "apps/ios/scripts/build.sh",
+    "apps/ios/scripts/prepare-web.sh",
+    "gallery-server/downloader/public/offline"
+  ],
+  "build": [
+    "/bin/bash",
+    "apps/ios/scripts/build.sh"
+  ],
+  "environment": {
+    "DEVELOPMENT_TEAM": "YOUR_TEAM_ID"
+  }
+}

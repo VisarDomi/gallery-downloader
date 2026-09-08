@@ -93,6 +93,8 @@ restored reader is loaded after its saved library document, giving WebKit a real
 back entry. WebKit still owns in-session history, gestures, and bfcache scroll
 restoration. Explicit thumbnail selections override a saved reader position. Personal Team signing must be renewed before
 its profile expires; updating the same app bundle preserves downloaded files.
+See [daily wireless renewal](REFRESH.md) for the Mac LaunchAgent, private
+configuration template, initial wireless verification, and retry policy.
 
 ## Checks
 
