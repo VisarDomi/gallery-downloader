@@ -30,19 +30,54 @@ final class LocalTrust: NSObject, URLSessionDelegate, @unchecked Sendable {
     }
 }
 
-actor GalleryAPI {
-    static let transferLimit = 12
-    let base: URL
-    private let session: URLSession
+protocol GallerySource: Sendable {
+    func catalog() async throws -> Catalog
+    func manifest(_ item: GalleryItem, urgent: Bool) async throws -> GalleryManifest
+    func download(_ page: MediaPage, urgent: Bool) async throws -> URL
+    func prioritize(_ path: String) async
+}
+
+extension GallerySource {
+    func prioritize(_ path: String) async {}
+}
+
+// Requests already transferring finish; the next free slot goes to interactive
+// work. Background requests remain queued and continue afterward.
+actor TransferGate {
     private let limit: Int
     private var active = 0
     private var peak = 0
+    private var waiting: [(path: String, urgent: Bool, continuation: CheckedContinuation<Void, Never>)] = []
+    init(limit: Int) { self.limit = max(1, limit) }
+    func acquire(_ path: String, urgent: Bool) async throws {
+        if active < limit { active += 1; peak = max(peak, active) }
+        else { await withCheckedContinuation { waiting.append((path, urgent, $0)) } }
+        do { try Task.checkCancellation() }
+        catch { release(); throw error }
+    }
+    func prioritize(_ path: String) {
+        for index in waiting.indices where waiting[index].path == path { waiting[index].urgent = true }
+    }
+    func release() {
+        if waiting.isEmpty { active -= 1 }
+        else {
+            let index = waiting.firstIndex(where: \.urgent) ?? 0
+            waiting.remove(at: index).continuation.resume()
+        }
+    }
+    func statistics() -> (peak: Int, waiting: Int) { (peak, waiting.count) }
+}
+
+actor GalleryAPI: GallerySource {
+    static let transferLimit = 12
+    let base: URL
+    private let session: URLSession
+    private let gate: TransferGate
     private var imageRequests = 0
-    private var waiting: [(urgent: Bool, continuation: CheckedContinuation<Void, Never>)] = []
 
     init(base: URL, certificateURL: URL?, connections: Int = GalleryAPI.transferLimit) {
         self.base = base
-        limit = max(1, connections)
+        gate = TransferGate(limit: connections)
         let config = URLSessionConfiguration.ephemeral
         config.urlCache = nil
         config.requestCachePolicy = .reloadIgnoringLocalCacheData
@@ -66,14 +101,17 @@ actor GalleryAPI {
     }
 
     private func get<T: Decodable>(_ path: String, as type: T.Type, urgent: Bool = false) async throws -> T {
-        try await acquire(urgent: urgent)
-        defer { release() }
-        let (data, response) = try await session.data(from: endpoint(path))
-        guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
-            throw ReaderError.badResponse((response as? HTTPURLResponse)?.statusCode ?? 0)
-        }
-        try Task.checkCancellation()
-        return try JSONDecoder().decode(type, from: data)
+        try await gate.acquire(path, urgent: urgent)
+        do {
+            let (data, response) = try await session.data(from: endpoint(path))
+            guard let http = response as? HTTPURLResponse, http.statusCode == 200 else {
+                throw ReaderError.badResponse((response as? HTTPURLResponse)?.statusCode ?? 0)
+            }
+            try Task.checkCancellation()
+            let result = try JSONDecoder().decode(type, from: data)
+            await gate.release()
+            return result
+        } catch { await gate.release(); throw error }
     }
 
     func catalog() async throws -> Catalog { try await get("/offline-api/catalog", as: Catalog.self) }
@@ -84,27 +122,15 @@ actor GalleryAPI {
         return manifest
     }
 
-    private func acquire(urgent: Bool) async throws {
-        if active < limit { active += 1; peak = max(peak, active) }
-        else { await withCheckedContinuation { waiting.append((urgent, $0)) } }
-        do { try Task.checkCancellation() }
-        catch { release(); throw error }
-    }
-
-    private func release() {
-        if waiting.isEmpty { active -= 1 }
-        else {
-            let index = waiting.firstIndex(where: \.urgent) ?? 0
-            waiting.remove(at: index).continuation.resume()
-        }
-    }
+    func prioritize(_ path: String) async { await gate.prioritize(path) }
 
     func download(_ page: MediaPage, urgent: Bool = false) async throws -> URL {
-        try await acquire(urgent: urgent)
-        defer { release() }
+        try await gate.acquire(page.url, urgent: urgent)
         imageRequests += 1
-        let (temporary, response) = try await session.download(from: endpoint(page.url))
+        var temporaryFile: URL?
         do {
+            let (temporary, response) = try await session.download(from: endpoint(page.url))
+            temporaryFile = temporary
             try Task.checkCancellation()
             guard let http = response as? HTTPURLResponse, http.statusCode == 200,
                   http.mimeType?.hasPrefix("image/") == true else {
@@ -112,12 +138,14 @@ actor GalleryAPI {
             }
             let size = try FileManager.default.attributesOfItem(atPath: temporary.path)[.size] as? NSNumber
             guard size?.int64Value == page.size else { throw ReaderError.wrongSize }
+            await gate.release()
             return temporary
         } catch {
-            try? FileManager.default.removeItem(at: temporary)
+            if let temporaryFile { try? FileManager.default.removeItem(at: temporaryFile) }
+            await gate.release()
             throw error
         }
     }
 
-    func transferStatistics() -> (requests: Int, peak: Int) { (imageRequests, peak) }
+    func transferStatistics() async -> (requests: Int, peak: Int) { (imageRequests, await gate.statistics().peak) }
 }

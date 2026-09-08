@@ -1,7 +1,7 @@
 :root { color-scheme: dark; background: #000; color: #eee; font-family: 'SF Pro Display','SF Pro Text',-apple-system,sans-serif; font-size: 16px; }
 body { margin: 0; } html { scroll-behavior: auto; } * { box-sizing: border-box; } [hidden] { display: none !important; }
 button, a { -webkit-tap-highlight-color: transparent; } button { font: inherit; cursor: pointer; color: inherit; } a { color: #888; }
-#library-header { background: #111; padding: max(4px,env(safe-area-inset-top)) max(4px,env(safe-area-inset-right)) 4px max(4px,env(safe-area-inset-left)); }
+#library-footer { background: #111; padding: 4px max(4px,env(safe-area-inset-right)) max(4px,env(safe-area-inset-bottom)) max(4px,env(safe-area-inset-left)); }
 .controls { display: flex; align-items: center; justify-content: space-between; gap: 8px; color: #888; }
 #download { min-height: 44px; padding: 4px 10px; background: #222; border: 1px solid #555; border-radius: 4px; }
 #download:disabled { opacity: .5; }

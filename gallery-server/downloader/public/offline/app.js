@@ -4,7 +4,7 @@ const readerKey = /^(hitomi|imhentai)-[1-9]\d*$/.test(params.get('read') || '') 
 const pageNumber = Math.max(1, Math.floor(Number(params.get('p')) || 1));
 const readUrl = (key, index) => `/?read=${key}&page=${index + 1}`;
 let worker, rpcId = 0, catalog = [], downloads = new Map(), active = false, supported = false, suspended = false;
-let gridVersion = '', renderedReader = false, openingReader = false, observer;
+let gridVersion = '', renderedReader = false, openingReader = false, observer, rowObserver;
 const pending = new Map(), rows = new Map(), slots = new Set();
 const size = bytes => `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 const say = text => { $('status').textContent = text; };
@@ -34,12 +34,27 @@ function release(slot) {
     if (img) { img.onload = img.onerror = null; img.removeAttribute('src'); }
 }
 // Bound concurrent blobs/network previews, including horizontal strip scrolling.
-const work = []; let working = 0;
-function enqueue(task) { work.push(task); pump(); }
+const work = [], backgroundWork = []; let working = 0, backgroundScheduled = false;
+function enqueue(task, background = false) {
+    (background ? backgroundWork : work).push(task); pump();
+}
+function continueBackground() {
+    if (backgroundScheduled || suspended || !backgroundWork.length) return;
+    backgroundScheduled = true;
+    setTimeout(() => {
+        backgroundScheduled = false;
+        if (!suspended && !work.length && working < 2 && backgroundWork.length) {
+            working++;
+            Promise.resolve().then(backgroundWork.shift()).catch(() => {}).finally(() => { working--; pump(); });
+        }
+        continueBackground();
+    }, 16);
+}
 function pump() {
     while (working < 6 && work.length && !suspended) {
         working++; Promise.resolve().then(work.shift()).catch(() => {}).finally(() => { working--; pump(); });
     }
+    continueBackground();
 }
 function pageError(slot, text) {
     let error = slot.querySelector('.page-error');
@@ -68,6 +83,10 @@ async function loadImage(slot) {
         slot.url = localUrl || URL.createObjectURL(blob);
         img.onload = () => {
             slot.retries = 0;
+            if (!window.bootMarks.some(mark => mark.label === 'First image loaded')) {
+                mark('First image loaded');
+                window.nativeGallery?.reportStartup(window.bootMarks);
+            }
             if (readerKey && token === slot.token) {
                 slot.style.aspectRatio = `${img.naturalWidth}/${img.naturalHeight}`;
                 slot.querySelector('.page-error')?.remove();
@@ -101,6 +120,13 @@ function observeImages() {
         }
     }, { rootMargin: readerKey ? '1000px 0px' : '300px 0px' });
     for (const slot of slots) observer.observe(slot);
+    rowObserver?.disconnect();
+    rowObserver = new IntersectionObserver(entries => {
+        for (const { target: row, isIntersecting } of entries) {
+            if (isIntersecting) enqueue(() => populateRow(row, row.galleryItem));
+        }
+    }, { rootMargin: '600px 0px' });
+    for (const row of rows.values()) rowObserver.observe(row);
 }
 async function populateRow(row, item) {
     if (!row || row.populating || row.details) return;
@@ -137,7 +163,7 @@ function renderCatalog() {
     const totalPages = Math.max(1, Math.ceil(catalog.length / 25)), current = Math.min(pageNumber, totalPages);
     const items = catalog.slice((current - 1) * 25, current * 25);
     for (const item of items) {
-        const row = document.createElement('div'); row.className = 'hs-row-wrap';
+        const row = document.createElement('div'); row.className = 'hs-row-wrap'; row.galleryItem = item;
         const message = document.createElement('p'); message.className = 'row-message';
         const link = document.createElement('a'); link.href = readUrl(item.key, 0); link.textContent = item.title; message.append(link);
         const overlay = document.createElement('div'); overlay.className = 'row-title-overlay';
@@ -154,7 +180,8 @@ function renderCatalog() {
         if (page === current) link.setAttribute('aria-current', 'page'); pagination.append(link);
     }
     $('pagination').replaceChildren(pagination); observeImages();
-    for (const item of items) enqueue(() => populateRow(rows.get(item.key), item));
+    mark('Catalog rows rendered');
+    for (const item of items) enqueue(() => populateRow(rows.get(item.key), item), true);
 }
 async function showInfo(row, item) {
     const dialog = document.createElement('dialog'); dialog.className = 'hs-modal';
@@ -192,14 +219,15 @@ async function showInfo(row, item) {
 async function openReader() {
     if (openingReader) return;
     openingReader = true;
-    $('library').hidden = $('library-header').hidden = true; $('reader').hidden = false;
+    $('library').hidden = $('library-footer').hidden = true; $('reader').hidden = false;
     if (!renderedReader) $('reader-message').textContent = 'Opening saved pages…';
     try {
         const { manifest, state } = await call('open', { key: readerKey }); document.title = manifest.title;
         $('reader-message').textContent = state.complete ? '' : `${state.downloaded}/${state.total} pages saved`;
         if (!renderedReader) {
             const fragment = document.createDocumentFragment();
-            manifest.pages.slice(0, state.downloaded).forEach((page, index) => {
+            const available = window.nativeGallery ? manifest.pages.length : state.downloaded;
+            manifest.pages.slice(0, available).forEach((page, index) => {
                 const slot = document.createElement('div'), img = new Image();
                 slot.className = 'page'; slot.index = index; slot.id = `page-${index + 1}`;
                 slot.style.aspectRatio = page.width > 0 && page.height > 0 ? `${page.width}/${page.height}` : '2/3';
@@ -207,19 +235,10 @@ async function openReader() {
                 slot.append(img); slots.add(slot); fragment.append(slot);
             });
             $('reader-pages').replaceChildren(fragment); renderedReader = true;
-            const selected = Math.max(0, Math.min(state.downloaded - 1, Math.floor(Number(params.get('page')) || 1) - 1));
-            if (Number(params.get('page')) > state.downloaded) $('reader-message').textContent = `Page ${params.get('page')} is not saved. Only the first ${state.downloaded} pages are available.`;
+            const selected = Math.max(0, Math.min(available - 1, Math.floor(Number(params.get('page')) || 1) - 1));
+            if (!window.nativeGallery && Number(params.get('page')) > state.downloaded) $('reader-message').textContent = `Page ${params.get('page')} is not saved. Only the first ${state.downloaded} pages are available.`;
             const target = $(`page-${selected + 1}`);
             if (target) window.scrollTo(0, Math.max(0, target.offsetTop - window.innerHeight / 2));
-        }
-        if (window.nativeGallery && state.downloaded > slots.size) {
-            for (let index = slots.size; index < state.downloaded; index++) {
-                const page = manifest.pages[index], slot = document.createElement('div'), img = new Image();
-                slot.className = 'page'; slot.index = index; slot.id = `page-${index + 1}`;
-                slot.style.aspectRatio = page.width > 0 && page.height > 0 ? `${page.width}/${page.height}` : '2/3';
-                img.className = 'hs-reader-img'; img.alt = ''; img.decoding = 'async';
-                slot.append(img); slots.add(slot); $('reader-pages').append(slot);
-            }
         }
         observeImages();
     } catch (error) { $('reader-message').textContent = error.message; }
@@ -273,10 +292,11 @@ async function start(restoring = false) {
         if (readerKey) await openReader();
         else if (restoring) {
             observeImages();
-            for (const [key, row] of rows) if (!row.details) enqueue(() => populateRow(row, catalog.find(i => i.key === key)));
+            for (const row of rows.values()) enqueue(() => populateRow(row, row.galleryItem), true);
             pump();
         }
     } catch (error) { if (readerKey) $('reader-message').textContent = error.message; else say(error.message); }
+    requestAnimationFrame(() => requestAnimationFrame(() => window.nativeGallery?.continueLoading()));
 }
 $('download').onclick = async () => {
     try {
@@ -290,7 +310,7 @@ $('download').onclick = async () => {
 };
 window.addEventListener('pagehide', () => {
     suspended = true; worker?.terminate(); worker = undefined; active = false;
-    observer?.disconnect(); clearTimeout(scrollTimer); work.length = 0;
+    observer?.disconnect(); rowObserver?.disconnect(); clearTimeout(scrollTimer); work.length = 0; backgroundWork.length = 0;
     // Keep DOM, dimensions, blob URLs and both scroll axes for bfcache. Release
     // IDB/write handles by terminating the worker, without blocking navigation.
     for (const slot of slots) { slot.token = (slot.token || 0) + 1; slot.loading = false; }

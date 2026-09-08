@@ -11,7 +11,9 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     private var listening: Task<Void, Never>?
     private var updating: Task<Void, Never>?
     private var foreground = true
+    private var documentReady = false
     private var syncing: Task<Void, Never>?
+    private var warming: Task<Void, Never>?
     private var poller: Task<Void, Never>?
     private var knownGalleryCount = 0
     private let network = NWPathMonitor()
@@ -67,7 +69,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     }
     override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); webView.frame = view.bounds }
     private func ensureLoaded() async throws {
-        if loading == nil { loading = Task { [store] in _ = try await store.load() } }
+        if loading == nil { loading = Task { [store] in try await store.load() } }
         try await loading?.value
     }
     private func scheduleUpdate() {
@@ -88,6 +90,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         UIApplication.shared.isIdleTimerDisabled = false
         operation?.cancel()
         syncing?.cancel()
+        warming?.cancel()
         Task { [store] in await store.cancelTransfers() }
     }
     func resume() {
@@ -95,18 +98,30 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         startAutomaticWork()
     }
     private func startAutomaticWork() {
-        guard foreground, loading != nil else { return }
+        guard foreground, documentReady, loading != nil else { return }
         if syncing == nil {
             syncing = Task { [weak self, store] in
-                do { try await store.refreshCatalog() } catch { /* Saved galleries stay usable offline. */ }
+                do {
+                    guard let self else { return }
+                    try await self.ensureLoaded()
+                    try Task.checkCancellation()
+                    try await store.refreshCatalog()
+                } catch { /* Saved galleries stay usable offline. */ }
                 self?.syncing = nil
                 self?.runDownload()
+            }
+        }
+        if warming == nil {
+            warming = Task(priority: .utility) { [weak self, store] in
+                try? await self?.ensureLoaded()
+                await store.warmRemaining()
+                self?.warming = nil
             }
         }
         runDownload()
     }
     private func runDownload() {
-        guard foreground, knownGalleryCount > 0, operation == nil else { return }
+        guard foreground, documentReady, knownGalleryCount > 0, operation == nil else { return }
         operation = Task { [weak self, store] in
             guard let self else { return }
             do {
@@ -133,10 +148,15 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                 switch command {
                 case "init":
                     replyHandler(try await store.webSnapshot(), nil)
-                    knownGalleryCount = await store.snapshot().galleries.count
+                    knownGalleryCount = await store.galleryCount()
+                case "continue":
+                    documentReady = true
                     startAutomaticWork()
-                case "download": runDownload(); replyHandler("{}", nil)
-                case "stop": pause(); replyHandler("{}", nil)
+                    replyHandler("{}", nil)
+                case "startup":
+                    let marks = try JSONSerialization.data(withJSONObject: args["marks"] as? [[String: Any]] ?? [])
+                    try await store.recordStartup(marks)
+                    replyHandler("{}", nil)
                 case "describe", "open", "page", "thumbnail":
                     replyHandler(try await store.webReply(command, key: key, index: index), nil)
                 default: replyHandler(nil, "Unknown native request")

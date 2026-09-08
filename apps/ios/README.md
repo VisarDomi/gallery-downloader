@@ -1,11 +1,12 @@
 # Gallery Reader for iPhone
 
-The app automatically loads **all completed favorites** and downloads their images
-automatically. It checks for new favorites on launch, reconnection, and every
+The app automatically loads **all completed favorites** and downloads their images. It checks for new favorites on launch, reconnection, and every
 30 seconds while foregrounded. Saved galleries are retained and reused; sync
 never deletes them. Display order follows the PC favorites snapshot exactly
 (within its Hitomi-then-IMHentai grouping); offline-only saved entries are retained
-after current favorites. Download completion order never determines display order. There is no separate import or download step. The existing offline PWA supplies both library and reader views, with
+after current favorites. Download completion order never determines display order.
+There is no separate import or download step. The existing offline PWA supplies
+both library and reader views, with
 25 galleries per library page. It is hosted in `WKWebView` with WebKit's own
 back/forward navigation gestures and unrestricted viewport zoom. There are no
 custom swipe, pinch, or double-tap recognizers.
@@ -20,14 +21,27 @@ fetched immediately, ahead of bulk transfers, and duplicate requests share one
 transfer. Eight gallery pipelines use a shared twelve-request budget. Each gallery
 can begin originals as soon as its own previews finish.
 
-The full entry list comes from the lightweight catalog; six concurrent metadata
-requests populate it without holding up rendering. Progress uses a separate small
-`progress.json`, flushed every 16 changes or 250 ms during activity, plus on
-completion/cancellation/backgrounding. A process interruption can leave a few
-committed files ahead of the checkpoint; resume checks those files and reuses
-them. The large manifest catalog is saved only when new metadata arrives.
-UI updates carry changed gallery states, and saved thumbnails are not reloaded
-for every progress notification.
+Cold launch paints the bundled shell first, then reads the small `index.json`,
+`catalog.json`, and `progress.json`. It does not decode the aggregate image catalog
+or enumerate image files. Per-gallery manifests live in `manifests/`; visible
+rows/readers load theirs first, and all remaining metadata warms one gallery at a
+time with a yield between galleries. The previous aggregate is converted once,
+without moving or redownloading media; the small index is committed only after
+its referenced manifests are durable.
+
+Visible thumbnail/reader requests take the next network slots ahead of queued
+background work. If a requested image is already queued, its existing request is
+promoted and shared. In-flight transfers finish, and queued background work
+continues afterward. Opening an unsaved reader page fetches that page directly;
+sparse original and thumbnail checkpoints survive restart. The shared UI prepares
+visible rows first and fills the remaining rows in small background turns.
+All library feedback and controls are below pagination.
+
+Progress uses a separate small `progress.json`, flushed every 16 changes or 250 ms
+during activity, plus on completion/cancellation/backgrounding. A process
+interruption can leave a few committed files ahead of the checkpoint; resumed
+transfers check those files and reuse them. Reading committed images creates no
+transfer/progress events. UI updates carry changed gallery states.
 
 ## Build on macOS
 
@@ -60,8 +74,8 @@ Developer Mode on the attached iPhone.
    Xcode's target build is used directly so device compilation does not depend on
    downloading an iOS simulator runtime.
 
-The PC URL is `GalleryServerURL` in `Resources/Info.plist`. The first import and
-downloads need the home LAN and iPhone Local Network permission. Reading already
+The PC URL is `GalleryServerURL` in `Resources/Info.plist`. Syncing and
+downloading need the home LAN and iPhone Local Network permission. Reading already
 saved images and opening the bundled app shell work without that network.
 
 ## First phone test
@@ -79,8 +93,8 @@ its profile expires; updating the same app bundle preserves downloaded files.
 ## Checks
 
 `npm run test:ios:native` checks selection, unsafe/inconsistent manifest rejection,
-and atomic file replacement. On the home LAN, add `-- --integration` to exercise automatic favorites loading,
-cancellation during previews, and automatic resume from persisted state. Integration files are temporary and removed afterward.
+empty-catalog handling, retained offline favorites, and atomic file replacement. On the home LAN, add `-- --integration` to exercise automatic favorites loading,
+cancellation during previews, and automatic resume from persisted state. Small sample catalogs are supplied by the test source; production sync has no gallery-limit parameter. Integration files are temporary and removed afterward.
 
 Tests also cover new-gallery sync without image redownloads, shared concurrent
 thumbnail requests, out-of-order preview recovery, compact checkpoints, and
@@ -97,3 +111,9 @@ saved 3.83 GB in 83 seconds (46.13 MB/s), including 12,436 originals and 12,908
 source thumbnails. This is observed throughput, not a guaranteed network maximum.
 
 Apple reference: [WKWebView navigation gestures](https://developer.apple.com/documentation/webkit/wkwebview/allowsbackforwardnavigationgestures).
+
+`Tests/StartupBenchmark.swift` measures aggregate decoding/validation, the small
+launch index, visible-gallery loading, and complete background warm-up. It accepts
+a saved aggregate JSON and an optional catalog JSON. `startup.json` in the app's
+Application Support directory records native index-load timing and WebKit's first
+image timing for on-device cold-start verification.

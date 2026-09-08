@@ -1,6 +1,12 @@
 document.getElementById('download').hidden = true;
 // Reuse the PWA UI and document navigation. Storage RPCs go to Swift actors.
 window.nativeGallery = {
+    reportStartup(marks) {
+        window.webkit.messageHandlers.gallery.postMessage({ command: 'startup', args: { marks } }).catch(() => {});
+    },
+    continueLoading() {
+        window.webkit.messageHandlers.gallery.postMessage({ command: 'continue' }).catch(() => {});
+    },
     createWorker() {
         let alive = true;
         const previews = new Map();
@@ -29,7 +35,6 @@ window.nativeGallery = {
                     worker.onmessage?.({ data: { type: 'previews-ready', key: item.key.slice(0, -7) } });
                 }
             }
-            document.getElementById('download').hidden = true;
         }
         function receive(event) { if (alive) update(event.detail); }
         window.addEventListener('native-library', receive);
