@@ -1,12 +1,16 @@
 # Gallery Downloader
 
-`gallery-reader` provider favorites → HTTPS downloader → local images → offline OPFS PWA.
+iOS (offline) app that downloads and views galleries from your pc. it's also a full pipeline which listens to [gallery-reader](https://github.com/VisarDomi/gallery-reader) to get the list of favorites from that and downloads them locally. these local galleries are then used by the ios app to load them there and the pipeline completes.
 
-- PWA: https://192.168.1.197:7777/
-- PC queue controls: https://192.168.1.197:7777/downloader
-- Operations: [notes.md](notes.md)
-- Offline app, storage and updates: [OFFLINE-TEST.md](OFFLINE-TEST.md)
-- Boundaries: [decisions.md](decisions.md)
-- Phone backup/restore and pre-format checklist: [READER-BACKUPS.md](READER-BACKUPS.md)
+## what?
+this app needs a network connection to the local network where you pc is to download the galleries first. when downloads are finished, it works fully offline
 
-The user reported fast iOS 27 beta 8 PWA startup with 7 GB saved on 2026-09-07. The app now has paginated source-thumbnail strips, offline gallery information, and a content-only reader with native Back navigation. Resume downloads adds separate thumbnail packs without invalidating existing original packs. See the update instructions above; do not clear website data.
+## why?
+offline apps are king.
+
+## how?
+the ios app is straightforward, it consumes the galleries that are on the local network pc. the pc setup is a small pipeline. it lists/syncs/backups favorites. uses that list to download the actual galleries locally. it communicates with the ios app if needed.
+
+## setup
+
+[notes.md](./notes.md)
