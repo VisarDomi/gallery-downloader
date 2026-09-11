@@ -1,5 +1,11 @@
 # Reader backups before formatting an iPhone
 
+**Manga Reader changed on 2026-09-11:** its userscript, extension, and Asura app
+now use explicit **Load / Save** beneath the homepage loaded count. Controls hide
+when the PC is unavailable. The automatic workflow below applies to the other
+readers and historical Manga backups. See [Manga manual state](ASURA-MANUAL-STATE.md).
+
+
 The existing HTTPS `gallery-downloader.service` on port 7777 also stores private
 backups for Gallery Reader, Manga Reader and KM Explorer. This is separate from downloader
 favorites and from the PWA's downloaded images.

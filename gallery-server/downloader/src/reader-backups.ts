@@ -4,6 +4,7 @@ import { randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
 import { Router, json } from 'express';
 import cors from 'cors';
 import { durableAtomicWriteFileSync } from './durable-file.js';
+import { ManualMangaState } from './manual-manga-state.js';
 
 const providers: Record<string, string[]> = {
     'gallery-reader': ['hitomi', 'imhentai'],
@@ -112,6 +113,21 @@ export function readerBackups(root: string): Router {
     const readerJSON = json({ limit: '5mb' });
     const kmJSON = json({ limit: '50mb' }); // Includes URL/catalog caches, never video media.
     router.use((req, res, next) => (req.path.startsWith('/km-explorer/') ? kmJSON : readerJSON)(req, res, next));
+    const manual = new ManualMangaState(root);
+    router.get('/manual/manga-reader/:provider/status', (req, res) => {
+        if (!providers['manga-reader'].includes(req.params.provider)) { res.sendStatus(400); return; }
+        res.json({ available: true }); // No reading snapshot is touched by discovery.
+    });
+    router.get('/manual/manga-reader/:provider', (req, res) => {
+        try { const data = manual.read(req.params.provider); if (data === null) { res.sendStatus(404); return; } res.json(data); }
+        catch { res.status(400).json({ error: 'Reading state unavailable' }); }
+    });
+    router.put('/manual/manga-reader/:provider', (req, res) => {
+        try { manual.save(req.params.provider, req.body); res.json({ saved: true }); }
+        catch { res.status(400).json({ error: 'Invalid reading state' }); }
+    });
+    // Retire the automatic publisher. Old clients cannot alter the manual save.
+    router.all('/library/asurascans', (_req, res) => { res.sendStatus(410); });
     router.get('/:app/:provider', (req, res) => {
         try { res.json(store.list(req.params.app, req.params.provider)); }
         catch (error) { res.status(400).json({ error: String(error) }); }
