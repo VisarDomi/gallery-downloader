@@ -10,6 +10,7 @@ const providers: Record<string, string[]> = {
     'gallery-reader': ['hitomi', 'imhentai'],
     'manga-reader': ['ezmanga', 'qimanga', 'yakshacomics', 'asurascans', 'scythescans', 'luacomic'],
     'km-explorer': ['ytboob'],
+    'ytb': ['ytboob'],
 };
 interface Snapshot { revision: string; savedAt: string; data: unknown }
 interface Backup { id: string; label: string; current: Snapshot; previous: Snapshot | null }
@@ -27,7 +28,7 @@ function privateDirectory(directory: string): void {
 function contentCount(app: string, data: unknown): number {
     const value = data as { version: number; indexedDB?: Record<string, unknown> };
     if (value?.version !== 1) throw new Error('Invalid snapshot version');
-    if (app === 'km-explorer') {
+    if (app === 'km-explorer' || app === 'ytb') {
         const state = value.indexedDB;
         if (!state || !['videos', 'details', 'channels'].every(name => Array.isArray(state[name]))) throw new Error('Missing KM cache stores');
         const preferences = state.preferences as { favorites: unknown; highlight: unknown; scroll: unknown };
@@ -112,7 +113,7 @@ export function readerBackups(root: string): Router {
     });
     const readerJSON = json({ limit: '5mb' });
     const kmJSON = json({ limit: '50mb' }); // Includes URL/catalog caches, never video media.
-    router.use((req, res, next) => (req.path.startsWith('/km-explorer/') ? kmJSON : readerJSON)(req, res, next));
+    router.use((req, res, next) => ((req.path.startsWith('/km-explorer/') || req.path.startsWith('/ytb/')) ? kmJSON : readerJSON)(req, res, next));
     const manual = new ManualMangaState(root);
     router.get('/manual/manga-reader/:provider/status', (req, res) => {
         if (!providers['manga-reader'].includes(req.params.provider)) { res.sendStatus(400); return; }

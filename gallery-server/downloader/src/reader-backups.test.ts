@@ -66,6 +66,24 @@ test('KM snapshots retain all caches, isolate phones, rotate once, and reject em
     } finally { cleanup(); }
 });
 
+test('Ytb snapshots retain all caches, isolate phones, rotate once, and reject empty favorite loss', () => {
+    const { store, cleanup } = fixture();
+    const id = randomUUID();
+    const snapshot = { version: 1, indexedDB: { videos: [{id:'42',thumbnail:'https://example.test/thumb.jpg',pageUrl:'https://ytboob.com/fixture/'}], details: [], channels: [], preferences: { favorites:['42'], highlight:null, scroll:{'/page/2/':123} } } };
+    try {
+        const first = store.put('ytb', 'ytboob', id, { label:'KM phone',baseRevision:null,data:snapshot });
+        assert.deepEqual(store.put('ytb', 'ytboob', id, { label:'KM phone',baseRevision:null,data:snapshot }), first);
+        const second = store.put('ytb', 'ytboob', id, { label:'KM phone',baseRevision:first.current.revision,data:{...snapshot,indexedDB:{...snapshot.indexedDB,preferences:{...snapshot.indexedDB.preferences,favorites:['42','43']}}} });
+        assert.deepEqual(second.previous, first.current);
+        assert.throws(() => store.put('ytb','ytboob',id,{label:'KM phone',baseRevision:second.current.revision,data:{...snapshot,indexedDB:{...snapshot.indexedDB,preferences:{...snapshot.indexedDB.preferences,favorites:[]}}}}), /CONFLICT/);
+        const copy = store.put('ytb', 'ytboob', randomUUID(), { label:'Restored KM phone',baseRevision:null,data:second.current.data });
+        assert.notEqual(copy.id,id);
+        assert.deepEqual(store.read('ytb','ytboob',id),second);
+        assert.equal(store.list('km-explorer','ytboob').length,0);
+        assert.equal(store.list('gallery-reader','hitomi').length,0);
+    } finally { cleanup(); }
+});
+
 test('HTTP backups require private key, allow only reader origins, and never cache', async () => {
     const { root, cleanup } = fixture();
     const app = express();
