@@ -1,0 +1,146 @@
+{
+  "date": "2026-09-13T10:15:06.428318+00:00",
+  "app": "Gallery Reader (Gallery Downloader)",
+  "build": "8",
+  "approvedComparisonItems": [
+    1,
+    4
+  ],
+  "unchangedComparisonItems": [
+    2,
+    3,
+    5,
+    6,
+    7,
+    8,
+    9,
+    10,
+    11,
+    12
+  ],
+  "reference": "gallery-reader/src/core/scroll-settle.ts and src/core/image-retry.ts (userscript)",
+  "shippingNativeBaseline": "a417a54513a9340fec75d3cc22a21c347d58be26",
+  "nativeSwiftChanged": false,
+  "temporaryInspectionRemoved": true,
+  "APNsBackgroundDraftIncluded": false,
+  "installation": "Updated existing paid app in place; normal archived build installed after diagnostic checks; normal sources renewed successfully.",
+  "tests": {
+    "offlineSuite": "10 passed",
+    "preparedWeb": "Matches shared app.js; JavaScript syntax check passed",
+    "referenceParity": "Helpers exactly match transpiled current userscript modules"
+  },
+  "physicalChecks": [
+    {
+      "bundle": "com.visar.GalleryReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "gallery:",
+        "route": "reader",
+        "cards": 0,
+        "pages": 1046,
+        "decodedImages": 12,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "scrollY": 1300,
+        "checkpoint": true,
+        "behavior": null,
+        "scriptCount": 3,
+        "errors": 0
+      },
+      "routeFingerprint": "92b123d9abd38e283629827c8e52d52e39d3ebcdcc3e762e4ed0b94d23053f7b",
+      "check": "position"
+    },
+    {
+      "bundle": "com.visar.GalleryReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "gallery:",
+        "route": "reader",
+        "cards": 0,
+        "pages": 1046,
+        "decodedImages": 12,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "scrollY": 1300,
+        "checkpoint": true,
+        "behavior": {
+          "saves": 1,
+          "duringScroll": 0,
+          "atScrollend": 1,
+          "retriesWithoutErrorEvent": 4,
+          "retryGaps": [
+            2002,
+            4008,
+            8027
+          ],
+          "done": true
+        },
+        "scriptCount": 3,
+        "errors": 0
+      },
+      "routeFingerprint": "92b123d9abd38e283629827c8e52d52e39d3ebcdcc3e762e4ed0b94d23053f7b",
+      "check": "snapshot"
+    },
+    {
+      "bundle": "com.visar.GalleryReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "gallery:",
+        "route": "reader",
+        "cards": 0,
+        "pages": 1046,
+        "decodedImages": 12,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "scrollY": 1300,
+        "checkpoint": false,
+        "behavior": null,
+        "scriptCount": 3,
+        "errors": 0
+      },
+      "routeFingerprint": "92b123d9abd38e283629827c8e52d52e39d3ebcdcc3e762e4ed0b94d23053f7b",
+      "check": "snapshot"
+    },
+    {
+      "bundle": "com.visar.GalleryReader.paid",
+      "snapshot": {
+        "ready": "complete",
+        "origin": "gallery:",
+        "route": "home",
+        "cards": 25,
+        "pages": 0,
+        "decodedImages": 35,
+        "brokenImages": 0,
+        "readAndPartial": 0,
+        "scrollY": 2983,
+        "checkpoint": false,
+        "behavior": null,
+        "scriptCount": 3,
+        "errors": 0
+      },
+      "routeFingerprint": "37b55b75c1522b96e747e433b2e0efdbf733c2f06d2b4af388ccc23d733c430f",
+      "check": "snapshot"
+    }
+  ],
+  "physicalCheckScope": "Saved images, reader force-kill/restore and Back are real app checks. Scroll timing uses dispatched events and retries use a controlled image object inside the physical WebView; no human scroll-smoothness claim.",
+  "renewal": {
+    "scheduler": "com.visar.installed-apps-refresh",
+    "active": true,
+    "lastExitStatus": 0,
+    "bundleId": "com.visar.GalleryReader.paid",
+    "version": "8",
+    "iconDeclared": false,
+    "webAssetsSHA256": {
+      "app.js": "21f6130a381aa6b43e500d2e137ada1793f0f5d110b8682e5dbd476e67cd7bfa",
+      "style.css": "6729da506c1ac6d97bb2f080cbd10399e119686532ee8711f7a5040739e4d04e",
+      "native.js": "65da7cb6fe8ca3d66e22b8e20c84e8c0c3e887faaafdc2e2a1766130b4016d99",
+      "index.html": "e7abe822c5c4556b5aa6acb88639042144c994f41f4ec43d11acbf1f863303ff"
+    },
+    "lastSuccess": 1789294456.448593,
+    "nextDue": 1791886456.448593,
+    "lastError": null,
+    "inputHash": "cff6a5ea1429c6774b3863bdef951a37e601e30b5702439b02428373886aa208",
+    "currentInputsMatch": true,
+    "profileExpires": "2027-09-13T09:14:44Z"
+  }
+}

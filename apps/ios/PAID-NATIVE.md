@@ -55,3 +55,30 @@ preflight and bundled UI checks. The wireless monthly-renewal test then passed,
 advancing profile expiry from 2027-09-12 17:25:34 UTC to 17:27:50 UTC. The
 shared scheduler now includes this app on the monthly interval. Fresh library
 downloads use the existing foreground PC pipeline.
+
+## September 13: approved scroll/retry update, build 8
+
+The user approved only Gallery Reader userscript scroll settlement and image
+retry parity; all other comparison items stay as-is. Build 8 changes the shared
+`gallery-server/downloader/public/offline/app.js`, advances its PWA shell cache
+to v9, and increments the existing Xcode project version. Native Swift, Info.plist,
+PC acquisition, offline retention and automatic polling remain on the shipping
+baseline above. Never copy the whole dirty local `apps/ios` directory to deploy
+this update: its paused background/APNs files remain unrelated drafts.
+
+Verified shipping inputs against baseline `a417a54513a9340fec75d3cc22a21c347d58be26`
+before copying only the shared app.js, sw.js and versioned project. Build/sign
+through a GUI LaunchAgent with the existing paid identity, updating the app in
+place. The normal build has no icon, push entitlement or background modes.
+
+For this update's physical inspection, an archived normal build was followed by
+a temporary build with `webView.isInspectable = true` in the Mac's WebController.
+That line is diagnostic-only: restore the baseline Swift file, install the
+archived normal build, and renew from the restored sources. Do not leave or
+approve that temporary inspection change as a shipping input. The verification
+record is `approved-reader-sync-verification.json`.
+
+Build 8 normal installation and monthly renewal passed. Approved inputs and all
+four bundled Web assets match; the scheduler is active/idle with last exit 0.
+The verification record includes profile expiry and next due time. Existing
+reading data remained available; no uninstall or data migration was performed.

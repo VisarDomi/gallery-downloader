@@ -1,3 +1,90 @@
+// Gallery Reader userscript behavior: src/core/{scroll-settle,image-retry}.ts.
+// Keep these plain-JS helpers faithful; both the PWA and native shell use them.
+function onSettledScroll(callback) {
+    let scrolling = false;
+    let active = true;
+    const schedule = () => {
+        if (scrolling || !active || document.hidden)
+            return;
+        callback();
+    };
+    window.addEventListener('scroll', () => { scrolling = true; }, { passive: true });
+    window.addEventListener('scrollend', () => { scrolling = false; schedule(); });
+    window.addEventListener('pagehide', () => { active = false; });
+    window.addEventListener('pageshow', () => { active = true; scrolling = false; });
+    document.addEventListener('visibilitychange', () => {
+        if (document.hidden) {
+            scrolling = false;
+        }
+    });
+    return schedule;
+}
+
+const FIRST_IMAGE_RETRY_MS = 1_000;
+const MAX_IMAGE_RETRY_MS = 2_147_483_647;
+const trackedImages = new Set();
+const retryStates = new WeakMap();
+let retryTimer = null;
+function registerImage(image) {
+    trackedImages.add(image);
+    scheduleRetry();
+}
+function registeredImageCount() {
+    return trackedImages.size;
+}
+function resetImageRegistry() {
+    trackedImages.clear();
+    if (retryTimer !== null) {
+        window.clearTimeout(retryTimer);
+        retryTimer = null;
+    }
+}
+function scheduleRetry() {
+    if (retryTimer !== null || trackedImages.size === 0)
+        return;
+    retryTimer = window.setTimeout(runRetry, FIRST_IMAGE_RETRY_MS);
+}
+function runRetry() {
+    retryTimer = null;
+    if (document.visibilityState === 'hidden') {
+        scheduleRetry();
+        return;
+    }
+    const now = Date.now();
+    for (const image of [...trackedImages]) {
+        if (!image.isConnected) {
+            trackedImages.delete(image);
+            continue;
+        }
+        const source = image.getAttribute('src');
+        if (!source?.trim()) {
+            trackedImages.delete(image);
+            continue;
+        }
+        if (image.naturalWidth > 0) {
+            trackedImages.delete(image);
+            continue;
+        }
+        let state = retryStates.get(image);
+        if (!state || state.source !== source) {
+            state = { source, delay: FIRST_IMAGE_RETRY_MS, retryAt: now };
+            retryStates.set(image, state);
+        }
+        if (!image.complete || now < state.retryAt)
+            continue;
+        const url = new URL(source);
+        if (url.origin === location.origin)
+            url.searchParams.set('retry', Date.now().toString());
+        image.src = '';
+        image.src = url.href;
+        state.delay = Math.min(state.delay * 2, MAX_IMAGE_RETRY_MS);
+        state.retryAt = now + state.delay;
+        state.source = image.src;
+    }
+    scheduleRetry();
+}
+// End shared reader behavior.
+
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const readerKey = /^(hitomi|imhentai)-[1-9]\d*$/.test(params.get('read') || '') ? params.get('read') : null;
@@ -14,7 +101,7 @@ mark('App module');
 // Persistent positions are logical anchors; WebKit still owns live history,
 // gestures, zoom, and bfcache restoration.
 let savedPosition = null, positionReady = false, skipPositionSave = false;
-let positionTimer, heldAnchor, anchorFrame;
+let heldAnchor, anchorFrame;
 const focalY = () => (window.visualViewport?.offsetTop || 0) + (window.visualViewport?.height || innerHeight) / 2;
 function capturePosition() {
     const center = focalY();
@@ -37,14 +124,11 @@ function capturePosition() {
         y: Math.max(0, scrollY), strips: readerKey ? {} : strips };
 }
 function savePosition() {
-    clearTimeout(positionTimer); positionTimer = undefined;
     if (!positionReady || suspended || skipPositionSave) return Promise.resolve();
     const position = capturePosition();
     return window.nativeGallery?.savePosition(position) || Promise.resolve();
 }
-function schedulePositionSave() {
-    if (!positionTimer) positionTimer = setTimeout(savePosition, 150);
-}
+const schedulePositionSave = onSettledScroll(() => { void savePosition(); });
 function alignAnchor() {
     if (!heldAnchor?.node.isConnected) return;
     const rect = heldAnchor.node.getBoundingClientRect();
@@ -77,8 +161,8 @@ positionResize.observe($('reader-pages'));
 for (const type of ['touchstart', 'pointerdown', 'wheel', 'keydown']) {
     addEventListener(type, () => { heldAnchor = null; }, { passive: true });
 }
-addEventListener('scroll', schedulePositionSave, { passive: true, capture: true });
-addEventListener('scrollend', () => { void savePosition(); }, { passive: true, capture: true });
+// Strip scrollend does not bubble to the window's vertical settling handler.
+addEventListener('scrollend', event => { if (event.target instanceof Element) void savePosition(); }, { passive: true, capture: true });
 addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') void savePosition(); });
 addEventListener('click', event => { if (event.target.closest?.('a[href]')) void savePosition(); }, { capture: true });
 
@@ -153,7 +237,6 @@ async function loadImage(slot) {
         if (token !== slot.token || suspended || !slot.isConnected) return;
         slot.url = localUrl || URL.createObjectURL(blob);
         img.onload = () => {
-            slot.retries = 0;
             if (!window.bootMarks.some(mark => mark.label === 'First image loaded')) {
                 mark('First image loaded');
                 window.nativeGallery?.reportStartup(window.bootMarks);
@@ -166,15 +249,9 @@ async function loadImage(slot) {
         img.onerror = () => {
             if (token !== slot.token) return;
             if (readerKey) pageError(slot, 'Saved image could not be decoded.');
-            if (window.nativeGallery) {
-                slot.url = undefined;
-                slot.retries = (slot.retries || 0) + 1;
-                if (slot.retries <= 3) setTimeout(() => {
-                    if (!suspended && slot.visible && slot.isConnected && token === slot.token) enqueue(() => loadImage(slot));
-                }, 1000 * 2 ** (slot.retries - 1));
-            }
         };
         img.src = slot.url;
+        registerImage(img);
     } catch (error) {
         if (token === slot.token && !suspended) {
             if (readerKey) pageError(slot, error.message);
@@ -376,7 +453,7 @@ $('download').onclick = async () => {
 window.addEventListener('pagehide', () => {
     void savePosition();
     suspended = true; worker?.terminate(); worker = undefined; active = false;
-    observer?.disconnect(); rowObserver?.disconnect(); clearTimeout(positionTimer); positionTimer = undefined; work.length = 0; backgroundWork.length = 0;
+    observer?.disconnect(); rowObserver?.disconnect(); work.length = 0; backgroundWork.length = 0;
     // Keep DOM, dimensions, blob URLs and both scroll axes for bfcache. Release
     // IDB/write handles by terminating the worker, without blocking navigation.
     for (const slot of slots) { slot.token = (slot.token || 0) + 1; slot.loading = false; }

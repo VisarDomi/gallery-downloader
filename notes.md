@@ -77,3 +77,38 @@ Source thumbnails are restored. Hitomi uses the existing local gallery-dl extrac
 Verified 2026-09-07 after gallery-reader build 506's iPhone test: downloader parity tests cover mixed original formats, pages beyond the first ten, explicit thumbnail overrides, query strings, GIF thumbnails, and missing-pattern failure without an original-image substitute. Existing complete thumbnail files are skipped; an interrupted file is fetched again and atomically published (not byte-range resumed). Backfill reached 100,851 thumbnail files beside 100,851 originals across 545 Hitomi and 15 IMHentai favorites. The before/after digest of original filenames, sizes, and modification times was identical. These are PC acquisition counts, not device download counts.
 
 The metrics directory is protected before each managed Chromium launch, including a recreated profile; cancellation closes the browser in `finally`. The PWA now saves separate source-thumbnail packs and renders paginated strips and a content-only reader. Existing device original packs and their revisions are unchanged. See OFFLINE-TEST.md for updating, Safari tests, and installed-PWA acceptance checks.
+
+## Approved Gallery Reader behavior sync — September 13
+
+Only comparison items 1 (scroll checkpoints) and 4 (image retry) were approved.
+The shared offline `app.js` now carries plain-JS equivalents of Gallery Reader's
+userscript `src/core/scroll-settle.ts` and `src/core/image-retry.ts`. These were
+transpiled directly and equality-checked against those source modules. Keep the
+helpers faithful when updating them. Both the PWA and native prepared Web payload
+use this same file; no native Swift change is needed for these two items.
+
+The 150ms periodic position-save timer is removed. Vertical saves use immediate
+scrollend; horizontal strip and lifecycle checkpoints remain. Images register
+after their URL is assigned, retry failed loads with the source registry's
+exponential backoff, and leave the registry when healthy or released. The old
+three-retry cap is removed. Offline file acquisition/repair semantics are unchanged.
+PWA shell cache version is v9; downloaded images and data identities are untouched.
+
+All 10 offline tests passed, including native bridge/browser restore and Back,
+scroll timing, retries beyond three attempts without an error event, hidden-page
+behavior, and released-image cleanup. Native Web resources were prepared locally.
+No Mac/iPhone access, signing, install or renewal change was made in this pass.
+For a later phone update, apply these shared UI inputs to the documented shipping
+baseline; do not deploy the paused APNs/background draft from this checkout.
+User decisions 2, 3 and 5–12 remain unchanged, including early restore handling,
+synchronous list construction, pagination/UI, favorites, retention and polling.
+
+The phone became available afterward. Build 8 was built on the approved native
+baseline and installed in place. A temporary inspectable build ran the same Web
+payload for real-device checks: no periodic save during a simulated scroll,
+immediate scrollend save, four image retries without an error event (roughly
+2/4/8-second gaps), decoded saved images, same-gallery cold restore at y=1300,
+and native Back to the library. Restored the exact baseline WebController and
+installed the archived normal build before approving renewal. No APNs draft or
+permanent inspection code was included. See `apps/ios/PAID-NATIVE.md` and
+`apps/ios/approved-reader-sync-verification.json` for deployment/recovery evidence.
