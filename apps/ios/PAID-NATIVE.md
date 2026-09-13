@@ -82,3 +82,20 @@ Build 8 normal installation and monthly renewal passed. Approved inputs and all
 four bundled Web assets match; the scheduler is active/idle with last exit 0.
 The verification record includes profile expiry and next due time. Existing
 reading data remained available; no uninstall or data migration was performed.
+
+
+## September 13: disable image selection and long-press menus
+
+All `img` elements and image-containing links use `-webkit-touch-callout: none`,
+`user-select: none` (including WebKit's prefix), and `-webkit-user-drag: none`.
+This includes covers, thumbnails, previews and reader pages. Taps and native
+scroll gestures remain enabled; no touch listener or gesture interception was
+added. Apple's [Safari CSS reference](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariCSSRef/Articles/StandardCSSProperties.html)
+documents the callout property.
+
+The shared offline `style.css` contains the same all-image rule. The PWA shell
+cache advances to v10 so existing clients receive it, and the native app uses
+build 9. Only CSS, the cache version and project build number were copied to the
+Mac after comparing its shipping baseline. Paused APNs/background drafts remain
+untouched. Browser checks verified image selection/drag, taps, text editing and
+scrolling.
