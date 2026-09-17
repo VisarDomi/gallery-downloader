@@ -99,3 +99,22 @@ build 9. Only CSS, the cache version and project build number were copied to the
 Mac after comparing its shipping baseline. Paused APNs/background drafts remain
 untouched. Browser checks verified image selection/drag, taps, text editing and
 scrolling.
+
+## September 17: eager offline image presentation (build 10)
+
+The shared offline UI now requests every thumbnail on the current paginated Home
+page and every image in the open reader as soon as its DOM exists. Removed both
+IntersectionObservers, offscreen source/blob release, and the deferred/concurrency
+UI queue. WebKit owns decoding; there is no custom viewport activation window.
+Pagination, downloaded-file ownership, retries, progress and PC polling remain.
+
+Physical iPhone verification: Home page 16 rendered all 25 strips and all 7,150
+local thumbnails without scrolling. A 2,000-page saved gallery assigned all 2,000
+local sources by the three-second check and subsequently decoded all 2,000 with
+no image errors. Back retained all thumbnails and restored Home scrollY 894.
+
+Only shared app.js, PWA shell version v11 and the native build number changed.
+The paused APNs/background draft remains untouched. Native Mac sources were
+compared with the committed foreground baseline before deployment. A temporary
+inspectable build was used for measurement, then the normal source and signed app
+were restored. See `eager-images-verification.json` for delivery/renewal evidence.

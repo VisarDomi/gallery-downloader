@@ -1,0 +1,60 @@
+{
+  "date": "2026-09-17",
+  "build": 10,
+  "bundleId": "com.visar.GalleryReader.paid",
+  "appSHA256": "d259a10e8b64a94691675b58f995fd3f744485c4cb22ce0ad254120e0027c18c",
+  "tests": {
+    "syntax": "passed",
+    "physicalHome": {
+      "page": 16,
+      "rows": 25,
+      "strips": 25,
+      "images": 7150,
+      "localSources": 7150,
+      "decoded": 7150,
+      "lazy": 0
+    },
+    "physicalReader": {
+      "images": 2000,
+      "localSourcesAtThreeSeconds": 2000,
+      "decodedAtThreeSeconds": 1967,
+      "decodedFinal": 2000,
+      "errors": 0
+    },
+    "back": {
+      "homeImages": 7150,
+      "decoded": 7150,
+      "scrollY": 894
+    }
+  },
+  "library": {
+    "galleries": 564,
+    "savedPages": 101159,
+    "reportedTotalGB": "22.47"
+  },
+  "nativeSwiftChanged": false,
+  "pausedDraftIncluded": false,
+  "temporaryInspectionRemoved": true,
+  "shippingNativeBaseline": "a417a54513a9340fec75d3cc22a21c347d58be26",
+  "renewal": {
+    "build": "10",
+    "bundle": "com.visar.GalleryReader.paid",
+    "lastSuccess": 1789627010.92824,
+    "nextDue": 1792219010.92824,
+    "lastError": null,
+    "approvedInputsMatch": true,
+    "webSHA256": "d259a10e8b64a94691675b58f995fd3f744485c4cb22ce0ad254120e0027c18c",
+    "profileExpiries": {
+      "65U58U86DD.com.visar.GalleryReader.paid": 1821162957.0
+    }
+  },
+  "cleanup": {
+    "schedulerRestored": true,
+    "installedAppCheck": "passed, exit 0",
+    "backgroundItems": [
+      "com.visar.installed-apps-refresh"
+    ],
+    "temporaryProbesRemoved": true,
+    "newBackgroundJobs": false
+  }
+}

@@ -91,7 +91,7 @@ const readerKey = /^(hitomi|imhentai)-[1-9]\d*$/.test(params.get('read') || '') 
 const pageNumber = Math.max(1, Math.floor(Number(params.get('p')) || 1));
 const readUrl = (key, index) => `/?read=${key}&page=${index + 1}`;
 let worker, rpcId = 0, catalog = [], downloads = new Map(), active = false, supported = false, suspended = false;
-let gridVersion = '', renderedReader = false, openingReader = false, observer, rowObserver;
+let gridVersion = '', renderedReader = false, openingReader = false;
 const pending = new Map(), rows = new Map(), slots = new Set();
 const size = bytes => `${(bytes / 1024 ** 3).toFixed(2)} GB`;
 const say = text => { $('status').textContent = text; };
@@ -188,36 +188,14 @@ function release(slot) {
     const img = slot.querySelector('img');
     if (img) { img.onload = img.onerror = null; img.removeAttribute('src'); }
 }
-// Bound concurrent blobs/network previews, including horizontal strip scrolling.
-const work = [], backgroundWork = []; let working = 0, backgroundScheduled = false;
-function enqueue(task, background = false) {
-    (background ? backgroundWork : work).push(task); pump();
-}
-function continueBackground() {
-    if (backgroundScheduled || suspended || !backgroundWork.length) return;
-    backgroundScheduled = true;
-    setTimeout(() => {
-        backgroundScheduled = false;
-        if (!suspended && !work.length && working < 2 && backgroundWork.length) {
-            working++;
-            Promise.resolve().then(backgroundWork.shift()).catch(() => {}).finally(() => { working--; pump(); });
-        }
-        continueBackground();
-    }, 16);
-}
-function pump() {
-    while (working < 6 && work.length && !suspended) {
-        working++; Promise.resolve().then(work.shift()).catch(() => {}).finally(() => { working--; pump(); });
-    }
-    continueBackground();
-}
+// Every saved image is requested as soon as its DOM exists. WebKit owns decoding.
 function pageError(slot, text) {
     let error = slot.querySelector('.page-error');
     if (!error) { error = document.createElement('span'); error.className = 'page-error'; slot.append(error); }
     error.textContent = `Page ${slot.index + 1}: ${text}`;
 }
 async function loadImage(slot) {
-    if (!slot.visible || slot.loading || slot.url || suspended) return;
+    if (slot.loading || slot.url || suspended) return;
     const token = slot.token = (slot.token || 0) + 1;
     slot.loading = true;
     const img = slot.querySelector('img');
@@ -259,22 +237,9 @@ async function loadImage(slot) {
         }
     } finally { if (token === slot.token) slot.loading = false; }
 }
-function observeImages() {
-    observer?.disconnect();
-    observer = new IntersectionObserver(entries => {
-        for (const { target: slot, isIntersecting } of entries) {
-            slot.visible = isIntersecting;
-            if (isIntersecting) enqueue(() => loadImage(slot)); else release(slot);
-        }
-    }, { rootMargin: readerKey ? '1000px 0px' : '300px 0px' });
-    for (const slot of slots) observer.observe(slot);
-    rowObserver?.disconnect();
-    rowObserver = new IntersectionObserver(entries => {
-        for (const { target: row, isIntersecting } of entries) {
-            if (isIntersecting) enqueue(() => populateRow(row, row.galleryItem));
-        }
-    }, { rootMargin: '600px 0px' });
-    for (const row of rows.values()) rowObserver.observe(row);
+function loadImages() {
+    for (const slot of slots) void loadImage(slot);
+    for (const row of rows.values()) void populateRow(row, row.galleryItem);
 }
 async function populateRow(row, item) {
     if (!row || row.populating || row.details) return;
@@ -295,7 +260,7 @@ async function populateRow(row, item) {
         });
         row.querySelector('.row-message')?.remove(); row.prepend(strip);
         if (savedPosition?.strips?.[item.key]) strip.scrollLeft = savedPosition.strips[item.key];
-        for (const slot of strip.children) observer.observe(slot);
+        for (const slot of strip.children) void loadImage(slot);
     } catch (error) {
         if (!suspended && row.isConnected) row.querySelector('.row-message').textContent = `${item.title} · ${error.message}`;
     } finally { row.populating = false; }
@@ -305,7 +270,7 @@ function renderCatalog() {
     if (readerKey) return;
     const signature = JSON.stringify(catalog.map(i => [i.key, i.title, i.ready]));
     if (signature === gridVersion) return; // Keep DOM/strip scroll when returning through bfcache.
-    gridVersion = signature; observer?.disconnect();
+    gridVersion = signature;
     for (const slot of slots) release(slot);
     slots.clear(); rows.clear();
     const fragment = document.createDocumentFragment();
@@ -329,9 +294,8 @@ function renderCatalog() {
         if (page === current) link.setAttribute('aria-current', 'page'); pagination.append(link);
     }
     $('pagination').replaceChildren(pagination);
-    restorePosition(); observeImages();
+    restorePosition(); loadImages();
     mark('Catalog rows rendered');
-    for (const item of items) enqueue(() => populateRow(rows.get(item.key), item), true);
 }
 async function showInfo(row, item) {
     const dialog = document.createElement('dialog'); dialog.className = 'hs-modal';
@@ -391,7 +355,7 @@ async function openReader() {
             if (target && !savedPosition) window.scrollTo(0, Math.max(0, target.offsetTop - window.innerHeight / 2));
             restorePosition();
         }
-        observeImages();
+        loadImages();
     } catch (error) { $('reader-message').textContent = error.message; }
     finally { openingReader = false; }
 }
@@ -422,9 +386,9 @@ async function start(restoring = false) {
             if (active) say(`${data.state.key.replace(':thumbs', ' thumbnails')} · ${data.state.downloaded}/${data.state.total}`);
         }
         if (data.type === 'previews-ready') {
-            for (const slot of slots) if (slot.key === data.key && slot.visible) {
-                if (window.nativeGallery) { if (!slot.url && !slot.loading) enqueue(() => loadImage(slot)); }
-                else { release(slot); enqueue(() => loadImage(slot)); }
+            for (const slot of slots) if (slot.key === data.key) {
+                if (window.nativeGallery) { if (!slot.url && !slot.loading) void loadImage(slot); }
+                else { release(slot); void loadImage(slot); }
             }
         }
         if (data.type === 'download-status') { active = data.running; totals(); say(data.message); }
@@ -433,9 +397,8 @@ async function start(restoring = false) {
         supported = (await call('init')).supported; totals();
         if (readerKey) await openReader();
         else if (restoring) {
-            observeImages();
-            for (const row of rows.values()) enqueue(() => populateRow(row, row.galleryItem), true);
-            pump(); schedulePositionSave();
+            loadImages();
+            schedulePositionSave();
         }
     } catch (error) { if (readerKey) $('reader-message').textContent = error.message; else say(error.message); }
     requestAnimationFrame(() => requestAnimationFrame(() => window.nativeGallery?.continueLoading()));
@@ -453,7 +416,6 @@ $('download').onclick = async () => {
 window.addEventListener('pagehide', () => {
     void savePosition();
     suspended = true; worker?.terminate(); worker = undefined; active = false;
-    observer?.disconnect(); rowObserver?.disconnect(); work.length = 0; backgroundWork.length = 0;
     // Keep DOM, dimensions, blob URLs and both scroll axes for bfcache. Release
     // IDB/write handles by terminating the worker, without blocking navigation.
     for (const slot of slots) { slot.token = (slot.token || 0) + 1; slot.loading = false; }
