@@ -1,0 +1,71 @@
+{
+  "date": "2026-09-22T16:17:02.849345+00:00",
+  "scope": [
+    "gallery"
+  ],
+  "device": "iPhone 12 Pro Max",
+  "builds": {
+    "gallery": 11
+  },
+  "coldLaunch": {
+    "gallery": {
+      "ready": "complete",
+      "sameRoute": true,
+      "scrollBefore": 4455,
+      "scrollAfter": 4455,
+      "rowsBefore": 25,
+      "rowsAfter": 25,
+      "imagesAfter": 3464,
+      "loadedImagesAfter": 3464,
+      "errors": []
+    }
+  },
+  "physicalNetworkRecovery": {},
+  "tests": {
+    "downloaderNative": [
+      "PASS: cancellation removes queued transfers without waiting for active I/O",
+      "PASS: interactive priority, promotion, eventual background completion",
+      "PASS: selection, manifest validation, partial-file rejection, atomic replacement",
+      "PASS: unavailable server stops the transfer batch",
+      "PASS: empty catalogs and retained offline galleries",
+      "PASS: persistent reader/library state and safe restoration routes",
+      "PASS: small cold-start index, visible gallery first, complete background warm-up"
+    ]
+  },
+  "boundaries": [
+    "Force-quit stops foreground transfers. Retained download work resumes when the app reopens; no execution while force-quit is claimed.",
+    "PC commands and account mutations are not automatically replayed.",
+    "Gallery Downloader was inspected with only isInspectable enabled temporarily; its shipping source and build are restored afterward.",
+    "Gallery Downloader APNs/background WIP was not shipped."
+  ],
+  "galleryReaderCold": {
+    "sameRoute": true,
+    "images": 151,
+    "loadedImages": 151,
+    "errors": [],
+    "backToOriginalHomeAndScroll": true
+  },
+  "renewal": {
+    "gallery": {
+      "inputHash": "fbcbce1a260b2c3c23b3d038e679f327e980e359cfef7f5a876f5f72aefeea7d",
+      "lastSuccess": 1790093995.540826,
+      "nextDue": 1792685995.540826,
+      "transport": "wired",
+      "installedProfiles": {
+        "65U58U86DD.com.visar.GalleryReader.paid": {
+          "id": "65U58U86DD.*",
+          "uuid": "1cdf8a74-2f46-43d7-aee7-25bfa6dc903a",
+          "created": 1790093916.0,
+          "expires": 1821629916.0
+        }
+      },
+      "attempts": 1
+    }
+  },
+  "scheduler": {
+    "label": "com.visar.installed-apps-refresh",
+    "resumed": true,
+    "lastExitStatus": 0,
+    "newJobsCreated": false
+  }
+}

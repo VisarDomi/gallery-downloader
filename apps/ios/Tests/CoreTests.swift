@@ -35,6 +35,18 @@ func waitForQueue(_ gate: TransferGate, _ count: Int) async throws {
 @main
 struct CoreTests {
     static func main() async throws {
+        let cancellationGate = TransferGate(limit: 1)
+        try await cancellationGate.acquire("busy", urgent: false)
+        let cancelled = Task { try await cancellationGate.acquire("cancelled", urgent: true) }
+        try await waitForQueue(cancellationGate, 1)
+        cancelled.cancel()
+        try await waitForQueue(cancellationGate, 0)
+        do { try await cancelled.value; try expect(false, "Cancelled waiter acquired a slot") }
+        catch is CancellationError { }
+        await cancellationGate.release()
+        try await cancellationGate.acquire("next", urgent: true)
+        await cancellationGate.release()
+        print("PASS: cancellation removes queued transfers without waiting for active I/O")
         for promote in [false, true] {
             let gate = TransferGate(limit: 1), order = RequestOrder()
             try await gate.acquire("blocker", urgent: false)
