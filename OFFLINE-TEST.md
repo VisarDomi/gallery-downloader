@@ -96,7 +96,7 @@ systemctl --user restart gallery-downloader.service
 node tests/ios/pwa.mjs
 ```
 
-The phone test uses the shared userscript-ios-test debugger and Safari only.
+The phone test uses the shared ios-tools debugger and Safari only.
 It does not press Download or clear existing data. It checks the live thumbnail
 home, no original requests from listing, an existing saved reader when present,
 and bfcache via `pageshow.persisted`, DOM identity, and both scroll axes. A fresh

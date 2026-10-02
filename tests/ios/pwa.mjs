@@ -1,6 +1,6 @@
 import { resolve } from 'node:path';
 import assert from 'node:assert/strict';
-import { createController, createSession } from 'userscript-ios-test/controller';
+import { createController, createSession } from 'ios-tools/controller';
 
 const root = resolve(import.meta.dirname, '../..');
 const controller = createController({ root, name: 'gallery-downloader', connectionTimeoutMs: 60000, commandTimeoutMs: 40000 });
