@@ -13,7 +13,6 @@ import { readFavorites, writeFavorites } from './favorites-store.js';
 import { FavoritesSyncController } from './favorites-sync.js';
 import { offlineApi } from './offline-api.js';
 import { webUi } from './web-ui.js';
-import { readerBackups } from './reader-backups.js';
 
 const app = express();
 const SOURCES: Record<SourceId, Source> = { hitomi, imhentai };
@@ -49,7 +48,6 @@ try {
 
 socketService.init(server);
 // Private userscript API: authenticate before parsing; deliberately outside wildcard CORS.
-app.use('/api/reader-backups', readerBackups(path.resolve(FAVORITES_DIR, '..', '..', 'backups', 'readers')));
 app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 app.use((req, res, next) => {
