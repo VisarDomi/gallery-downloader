@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Print this repo's paid app for ios-app-renewal's configure-refresh.py (runs on the Mac mirror)."""
+"""Print this repo's paid app for its renewal scheduler (ios-tools renewal; runs on the Mac mirror)."""
 import argparse
 import json
 from pathlib import Path
@@ -10,7 +10,7 @@ parser.add_argument('--device', required=True)
 args = parser.parse_args()
 # The app also bundles the downloader's offline UI, so its root is the repository, not apps/ios.
 root = Path(__file__).resolve().parents[3]
-print(json.dumps([dict(name='gallery', root=str(root),
+print(json.dumps(dict(repo='gallery-downloader', apps=[dict(name='gallery', root=str(root),
                        app='apps/ios/build/Debug-iphoneos/GalleryReader.app',
                        bundleIds=['com.visar.GalleryReader.paid'],
                        inputs=['apps/ios/GalleryReader', 'apps/ios/GalleryReader.xcodeproj',
@@ -18,4 +18,4 @@ print(json.dumps([dict(name='gallery', root=str(root),
                                'gallery-server/downloader/public/offline'],
                        build=['/bin/bash', 'apps/ios/scripts/build.sh'],
                        environment={'DEVELOPMENT_TEAM': args.team, 'GALLERY_BUNDLE_ID': 'com.visar.GalleryReader.paid',
-                                    'SIGNING_DEVICE': args.device})]))
+                                    'SIGNING_DEVICE': args.device})])))
