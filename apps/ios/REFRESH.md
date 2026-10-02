@@ -2,7 +2,7 @@
 
 Current deployment uses the paid account and the shared **monthly** scheduler.
 The free app and its daily job/configuration were retired on September 12. See
-[paid setup](PAID-NATIVE.md) and [current renewal](/home/visar/Documents/work/reader-extensions/PAID-REFRESH.md);
+[paid setup](PAID-NATIVE.md) and [current renewal](/home/visar/Documents/work/ios-app-renewal/PAID-REFRESH.md);
 the daily instructions below are historical.
 
 This is a **macOS user LaunchAgent**, not a Linux systemd service. It runs entirely

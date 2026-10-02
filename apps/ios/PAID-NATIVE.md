@@ -45,7 +45,7 @@ added by this migration.
 Gallery joins the existing installed-app scheduler with `interval: monthly` and
 its paid identity. All eight remaining native apps use the paid account. Free
 Gallery and LC configurations are retired, and their old daily LaunchAgents
-remain disabled. See the [renewal runbook](/home/visar/Documents/work/reader-extensions/PAID-REFRESH.md)
+remain disabled. See the [renewal runbook](/home/visar/Documents/work/ios-app-renewal/PAID-REFRESH.md)
 and [environment recovery copy](/home/visar/Documents/environment/mac-renewal/RECOVERY.md).
 The recovery snapshot must register paid Gallery and must not reinstall LC or
 reactivate its daily renewal.
