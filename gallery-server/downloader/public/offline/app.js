@@ -1,5 +1,4 @@
-// Gallery Reader userscript behavior: src/core/{scroll-settle,image-retry}.ts.
-// Keep these plain-JS helpers faithful; both the PWA and native shell use them.
+// Scroll settlement and image retries, matching gallery-reader's src/core/{scroll-settle,image-retry}.ts.
 function onSettledScroll(callback) {
     let scrolling = false;
     let active = true;
@@ -178,7 +177,7 @@ function totals() {
     const thumbs = catalog.map(item => downloads.get(`${item.key}:thumbs`)).filter(Boolean);
     $('count').textContent = `${catalog.length} Favorites`;
     $('download').textContent = active ? 'Stop' : downloads.size ? 'Resume downloads' : 'Download all';
-    $('download').disabled = !supported || (!catalog.length && !window.nativeGallery);
+    $('download').disabled = !supported;
     if (!active) say(`${originals.filter(s => s.complete).length}/${catalog.length} saved · ${size([...originals, ...thumbs].reduce((n, s) => n + s.bytes, 0))} · ${thumbs.filter(s => s.complete).length} thumbnail sets`);
 }
 function release(slot) {
@@ -205,7 +204,7 @@ async function loadImage(slot) {
         else {
             try { ({ blob, url: localUrl } = await call('thumbnail', { key: slot.key, index: slot.index })); }
             catch {
-                if (window.nativeGallery) throw new Error('Thumbnail not saved');
+                throw new Error('Thumbnail not saved');
                 if (!slot.source || navigator.onLine === false) throw new Error('Thumbnail not saved');
                 const response = await fetch(slot.source, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
                 if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) throw new Error('Thumbnail unavailable');
@@ -340,7 +339,7 @@ async function openReader() {
         $('reader-message').textContent = state.complete ? '' : `${state.downloaded}/${state.total} pages saved`;
         if (!renderedReader) {
             const fragment = document.createDocumentFragment();
-            const available = window.nativeGallery ? manifest.pages.length : state.downloaded;
+            const available = manifest.pages.length;
             manifest.pages.slice(0, available).forEach((page, index) => {
                 const slot = document.createElement('div'), img = new Image();
                 slot.className = 'page'; slot.index = index; slot.id = `page-${index + 1}`;
@@ -350,7 +349,6 @@ async function openReader() {
             });
             $('reader-pages').replaceChildren(fragment); renderedReader = true;
             const selected = Math.max(0, Math.min(available - 1, Math.floor(Number(params.get('page')) || 1) - 1));
-            if (!window.nativeGallery && Number(params.get('page')) > state.downloaded) $('reader-message').textContent = `Page ${params.get('page')} is not saved. Only the first ${state.downloaded} pages are available.`;
             const target = $(`page-${selected + 1}`);
             if (target && !savedPosition) window.scrollTo(0, Math.max(0, target.offsetTop - window.innerHeight / 2));
             restorePosition();
@@ -361,7 +359,7 @@ async function openReader() {
 }
 async function start(restoring = false) {
     suspended = false; mark(restoring ? 'bfcache resumed' : 'UI yielded a paint');
-    worker = window.nativeGallery ? window.nativeGallery.createWorker() : new Worker('/worker.js', { type: 'module' });
+    worker = window.nativeGallery.createWorker();
     worker.onerror = error => {
         for (const request of pending.values()) request.reject(new Error(error.message)); pending.clear();
         active = false; supported = false; totals(); say(`Storage error: ${error.message}`);
@@ -387,8 +385,7 @@ async function start(restoring = false) {
         }
         if (data.type === 'previews-ready') {
             for (const slot of slots) if (slot.key === data.key) {
-                if (window.nativeGallery) { if (!slot.url && !slot.loading) void loadImage(slot); }
-                else { release(slot); void loadImage(slot); }
+                if (!slot.url && !slot.loading) void loadImage(slot);
             }
         }
         if (data.type === 'download-status') { active = data.running; totals(); say(data.message); }
@@ -408,7 +405,6 @@ $('download').onclick = async () => {
         if (active) { $('download').disabled = true; await call('stop'); }
         else {
             active = true; totals(); say('Downloading thumbnails, then remaining pages…');
-            if (!window.nativeGallery) void navigator.storage.persist?.().catch(() => {});
             await call('download');
         }
     } catch (error) { active = false; totals(); say(error.message); }
@@ -422,14 +418,4 @@ window.addEventListener('pagehide', () => {
     for (const request of pending.values()) request.reject(new Error('App suspended')); pending.clear();
 });
 window.addEventListener('pageshow', event => { if (event.persisted) requestAnimationFrame(() => requestAnimationFrame(() => start(true))); });
-function prepareShell() {
-    navigator.serviceWorker.register('/sw.js', { scope: '/', updateViaCache: 'none' }).then(async registration => {
-        const notice = () => { if (registration.waiting) $('sw-status').textContent = 'Update ready. Close all app windows and reopen; saved downloads stay.'; };
-        registration.addEventListener('updatefound', () => registration.installing?.addEventListener('statechange', notice));
-        registration.installing?.addEventListener('statechange', notice);
-        await navigator.serviceWorker.ready; notice();
-    }).catch(error => { $('sw-status').textContent = `Offline shell unavailable: ${error.message}`; });
-}
-if (window.nativeGallery) requestAnimationFrame(() => requestAnimationFrame(() => { void start(); }));
-else if (!isSecureContext || !('serviceWorker' in navigator)) say('Trusted HTTPS is required.');
-else requestAnimationFrame(() => requestAnimationFrame(() => { void start(); prepareShell(); }));
+requestAnimationFrame(() => requestAnimationFrame(() => { void start(); }));

@@ -5,8 +5,8 @@ The app automatically loads **all completed favorites** and downloads their imag
 never deletes them. Display order follows the PC favorites snapshot exactly
 (within its Hitomi-then-IMHentai grouping); offline-only saved entries are retained
 after current favorites. Download completion order never determines display order.
-There is no separate import or download step. The existing offline PWA supplies
-both library and reader views, with
+There is no separate import or download step. The bundled offline UI
+(`gallery-server/downloader/public/offline`) supplies both library and reader views, with
 25 galleries per library page. It is hosted in `WKWebView` with WebKit's own
 back/forward navigation gestures and unrestricted viewport zoom. There are no
 custom swipe, pinch, or double-tap recognizers.
@@ -49,7 +49,7 @@ Install Xcode, add an Apple account in **Xcode → Settings → Accounts**, and 
 Developer Mode on the attached iPhone.
 
 1. At the repository root, run `bash apps/ios/scripts/prepare-web.sh` to bundle the
-   current PWA UI. `build.sh` also does this automatically.
+   offline UI. `build.sh` also does this automatically.
 2. Provide the LAN server's **public** CA certificate in DER form:
 
    ```sh
@@ -70,7 +70,7 @@ Developer Mode on the attached iPhone.
    ```
 
    A GUI login session may be necessary for Xcode to access account credentials
-   and signing keys. The existing web/PWA build and npm workspaces are unchanged.
+   and signing keys.
    Xcode's target build is used directly so device compilation does not depend on
    downloading an iOS simulator runtime.
 
@@ -106,7 +106,7 @@ Tests also cover new-gallery sync without image redownloads, shared concurrent
 thumbnail requests, out-of-order preview recovery, compact checkpoints, and
 stopping a batch when the server is unavailable.
 
-`npm run test:offline` verifies the existing PWA storage flows.
+`npm run test:offline` runs the offline UI's native-bridge and reader tests.
 
 `Tests/TransferBenchmark.swift` measures 1/4/8/12 concurrent transfers using a
 saved native library JSON. On the wired development laptop, 256 thumbnails rose

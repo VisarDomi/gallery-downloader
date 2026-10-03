@@ -12,7 +12,6 @@
         "build:downloader": "npm run build -w downloader",
         "test": "npm run test -w downloader && npm run test:offline",
         "test:offline": "node --test gallery-server/scripts/offline-*.test.mjs",
-        "test:ios": "node tests/ios/pwa.mjs",
         "start": "npm run build && systemctl --user start gallery-downloader.service",
         "restart": "npm run build && systemctl --user restart gallery-downloader.service",
         "stop": "systemctl --user stop gallery-downloader.service",
@@ -24,8 +23,5 @@
         "download:imhentai": "npm run download:imhentai -w downloader --",
         "build:ios:native": "bash apps/ios/scripts/build.sh",
         "test:ios:native": "bash apps/ios/scripts/test.sh"
-    },
-    "devDependencies": {
-        "ios-tools": "file:../../ios-tools"
     }
 }

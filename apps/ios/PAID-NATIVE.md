@@ -54,65 +54,12 @@ advancing profile expiry from 2027-09-12 17:25:34 UTC to 17:27:50 UTC. The
 shared scheduler now includes this app on the monthly interval. Fresh library
 downloads use the existing foreground PC pipeline.
 
-## September 13: approved scroll/retry update, build 8
+## Offline UI
 
-The user approved only Gallery Reader userscript scroll settlement and image
-retry parity; all other comparison items stay as-is. Build 8 changes the shared
-`gallery-server/downloader/public/offline/app.js`, advances its PWA shell cache
-to v9, and increments the existing Xcode project version. Native Swift, Info.plist,
-PC acquisition, offline retention and automatic polling remain on the shipping
-baseline above. Never copy the whole dirty local `apps/ios` directory to deploy
-this update: its paused background/APNs files remain unrelated drafts.
-
-Verified shipping inputs against baseline `a417a54513a9340fec75d3cc22a21c347d58be26`
-before copying only the shared app.js, sw.js and versioned project. Build/sign
-through a GUI LaunchAgent with the existing paid identity, updating the app in
-place. The normal build has no icon, push entitlement or background modes.
-
-For this update's physical inspection, an archived normal build was followed by
-a temporary build with `webView.isInspectable = true` in the Mac's WebController.
-That line is diagnostic-only: restore the baseline Swift file, install the
-archived normal build, and renew from the restored sources. Do not leave or
-approve that temporary inspection change as a shipping input. The verification
-record is `approved-reader-sync-verification.json`.
-
-Build 8 normal installation and monthly renewal passed. Approved inputs and all
-four bundled Web assets match; the scheduler is active/idle with last exit 0.
-The verification record includes profile expiry and next due time. Existing
-reading data remained available; no uninstall or data migration was performed.
-
-
-## September 13: disable image selection and long-press menus
-
-All `img` elements and image-containing links use `-webkit-touch-callout: none`,
-`user-select: none` (including WebKit's prefix), and `-webkit-user-drag: none`.
-This includes covers, thumbnails, previews and reader pages. Taps and native
-scroll gestures remain enabled; no touch listener or gesture interception was
-added. Apple's [Safari CSS reference](https://developer.apple.com/library/archive/documentation/AppleApplications/Reference/SafariCSSRef/Articles/StandardCSSProperties.html)
-documents the callout property.
-
-The shared offline `style.css` contains the same all-image rule. The PWA shell
-cache advances to v10 so existing clients receive it, and the native app uses
-build 9. Only CSS, the cache version and project build number were copied to the
-Mac after comparing its shipping baseline. Paused APNs/background drafts remain
-untouched. Browser checks verified image selection/drag, taps, text editing and
-scrolling.
-
-## September 17: eager offline image presentation (build 10)
-
-The shared offline UI now requests every thumbnail on the current paginated Home
-page and every image in the open reader as soon as its DOM exists. Removed both
-IntersectionObservers, offscreen source/blob release, and the deferred/concurrency
-UI queue. WebKit owns decoding; there is no custom viewport activation window.
-Pagination, downloaded-file ownership, retries, progress and PC polling remain.
-
-Physical iPhone verification: Home page 16 rendered all 25 strips and all 7,150
-local thumbnails without scrolling. A 2,000-page saved gallery assigned all 2,000
-local sources by the three-second check and subsequently decoded all 2,000 with
-no image errors. Back retained all thumbnails and restored Home scrollY 894.
-
-Only shared app.js, PWA shell version v11 and the native build number changed.
-The paused APNs/background draft remains untouched. Native Mac sources were
-compared with the committed foreground baseline before deployment. A temporary
-inspectable build was used for measurement, then the normal source and signed app
-were restored. See `eager-images-verification.json` for delivery/renewal evidence.
+The app bundles `gallery-server/downloader/public/offline` (`app.js`, `style.css`,
+`index.html`) through `scripts/prepare-web.sh`. Home requests every thumbnail on
+the current page and the reader every image as soon as its DOM exists; WebKit owns
+decoding. The scroll-settle and image-retry helpers in `app.js` mirror gallery-reader's
+`src/core/{scroll-settle,image-retry}.ts`. All images and image links disable
+callouts, selection and dragging. Never copy the whole local `apps/ios` directory
+to deploy: paused background/APNs drafts must stay out of builds.

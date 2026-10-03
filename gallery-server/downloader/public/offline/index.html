@@ -6,14 +6,13 @@
   <meta name="theme-color" content="#000000">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <title>Gallery Reader</title>
-  <link rel="manifest" href="/manifest.webmanifest">
   <link rel="stylesheet" href="/style.css">
 </head>
 <body>
   <main id="library"><div id="hs-grid"></div><nav id="pagination" class="hs-page-bar hs-page-bar-pag" aria-label="Pages"></nav></main>
   <footer id="library-footer">
     <div class="controls"><span id="count">Favorites</span><button id="download" disabled>Download all</button></div>
-    <p id="status" role="status">Loading…</p><p id="sw-status" role="status"></p>
+    <p id="status" role="status">Loading…</p>
   </footer>
   <main id="reader" hidden aria-label="Offline reader"><p id="reader-message" role="status"></p><div id="reader-pages" class="hs-reader-body"></div></main>
   <script>
