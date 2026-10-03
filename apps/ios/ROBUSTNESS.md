@@ -7,10 +7,7 @@ partial images without damaging completed files. Offline galleries remain usable
 This pass makes TransferGate remove canceled queued requests immediately rather
 than leaving them behind stalled active transfers.
 
-The separate APNs/background-sync WIP remains paused and unshipped. Only
-GalleryAPI.swift, the project build number and CoreTests.swift were overlaid on
-the verified shipping Mac mirror. Do not synchronize the locally modified
-AppDelegate/WebController/GalleryStore/Info.plist or the WIP test script.
+
 
 To test the shipping version while that WIP exists, stage apps/ios from git HEAD
 in a temporary directory and run its committed scripts/test.sh on the Mac. Tests
