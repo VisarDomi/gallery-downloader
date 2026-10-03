@@ -14,11 +14,9 @@ const numberOf = (name: string) => Number(name.match(/_(\d+)\.[^.]+$/)?.[1]);
 
 export function offlineApi(downloadRoot: string, favoritesRoot: string) {
     const router = Router();
-    // Metadata changes; image bytes are explicitly saved in OPFS, not HTTP cache.
+    // Metadata changes, and the app saves image bytes itself: never HTTP-cache these responses.
     router.use((_req, res, next) => {
         res.setHeader('Cache-Control', 'no-store');
-        // Unlike the userscript favorites API, private page bytes do not need CORS.
-        res.removeHeader('Access-Control-Allow-Origin');
         res.setHeader('Cross-Origin-Resource-Policy', 'same-origin');
         next();
     });

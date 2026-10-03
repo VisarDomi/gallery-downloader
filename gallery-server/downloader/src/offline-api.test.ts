@@ -4,7 +4,6 @@ import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import express from 'express';
-import cors from 'cors';
 import { offlineApi } from './offline-api.js';
 
 test('offline catalog, original packs and separate source thumbnails are provider-qualified and read-only', async t => {
@@ -23,7 +22,7 @@ test('offline catalog, original packs and separate source thumbnails are provide
         await fs.writeFile(path.join(dir, `${provider}_123_thumb_0002.jpg`), 't1');
         await fs.writeFile(path.join(dir, `${provider}_123_thumb_0010.jpg`), 't2');
     }
-    const app = express(); app.use(cors()); app.use('/offline-api', offlineApi(sources, favorites));
+    const app = express(); app.use('/offline-api', offlineApi(sources, favorites));
     const server = app.listen(0, '127.0.0.1');
     await new Promise<void>(resolve => server.once('listening', resolve));
     t.after(async () => { await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve())); await fs.rm(root, { recursive: true, force: true }); });

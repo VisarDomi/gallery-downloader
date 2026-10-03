@@ -1,5 +1,4 @@
 import express from 'express';
-import cors from 'cors';
 import https from 'https';
 import fs from 'fs';
 import os from 'os';
@@ -47,8 +46,6 @@ try {
 }
 
 socketService.init(server);
-// Private userscript API: authenticate before parsing; deliberately outside wildcard CORS.
-app.use(cors());
 app.use(express.json({ limit: '5mb' }));
 app.use((req, res, next) => {
     if (req.path === '/status' || req.path.startsWith('/api/')) {
