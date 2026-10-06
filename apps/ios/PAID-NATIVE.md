@@ -5,7 +5,8 @@ Gallery Reader is installed with team `65U58U86DD` and bundle ID
 Its library comes from the PC favorites pipeline.
 
 Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md).
-Ethernet address: `192.168.1.198`, user `visar`. The Mac mirror is
+Ethernet address: `192.168.1.198`, user `visar`; when it does not answer, SSH falls
+back to the Mac's Wi-Fi automatically (`mac-connect --check` in that runbook). The Mac mirror is
 `/Users/visar/Developer/gallery-downloader` (this repository's `apps/ios` and
 `gallery-server/downloader/public/offline`).
 
