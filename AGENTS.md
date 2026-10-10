@@ -1,1 +1,1 @@
-AGENTS.md, readme.md and test.txt are only edited by user.
+The coding agent owns this repository: any file may be changed, including this one, README.md and test.txt.

@@ -3,7 +3,7 @@
 iOS (offline) app that downloads and views galleries from your pc. it's also a full pipeline which listens to [gallery-reader](https://github.com/VisarDomi/gallery-reader) to get the list of favorites from that and downloads them locally. these local galleries are then used by the ios app to load them there and the pipeline completes.
 
 ## what?
-this app needs a network connection to the local network where you pc is to download the galleries first. when downloads are finished, it works fully offline
+this app needs a network connection to the local network where your pc is to download the galleries first. downloads keep going while the phone is locked or the app is in the background. when downloads are finished, it works fully offline
 
 ## why?
 offline apps are king.

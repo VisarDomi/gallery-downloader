@@ -84,8 +84,8 @@ Allow Local Network access and keep the app foregrounded while it automatically
 loads favorites and saves their images. Scroll to page 2, open a gallery, and use the normal WebKit back/forward
 edge swipes and zoom. Turn off Wi-Fi/mobile data and reopen to test offline reads.
 
-The app pauses downloads on backgrounding and automatically resumes
-when brought back to the foreground. It has no background-transfer service or sync/deletion UI. The current library
+Downloads continue while the app is away (locked, in the background, or closed by iOS);
+see "Away from the screen" in [PAID-NATIVE.md](PAID-NATIVE.md). There is no sync/deletion UI. The current library
 page, vertical gallery anchor, horizontal thumbnail strips, and reader image plus
 fraction are checkpointed in the small `view-state.json`, throttled during scroll
 and flushed on navigation/backgrounding. Cold launch restores the last view. A
