@@ -13,7 +13,10 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
         window?.makeKeyAndVisible()
         return true
     }
-    func applicationWillResignActive(_ application: UIApplication) { browser.capturePosition() }
+    func applicationWillResignActive(_ application: UIApplication) { browser.capturePosition(); browser.handOffDownloads() }
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
+        browser.background.handleEvents(completionHandler)
+    }
     func applicationDidBecomeActive(_ application: UIApplication) { browser.resume() }
     func applicationDidEnterBackground(_ application: UIApplication) { browser.pause() }
 }

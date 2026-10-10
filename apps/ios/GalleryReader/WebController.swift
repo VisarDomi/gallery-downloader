@@ -5,6 +5,7 @@ import Network
 @MainActor
 final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessageHandlerWithReply {
     let store: GalleryStore
+    let background: BackgroundDownloads
     private var webView: WKWebView!
     private var loading: Task<Void, Error>?
     private var operation: Task<Void, Never>?
@@ -25,7 +26,9 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     init() {
         let root = URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent("Library/Application Support/GalleryReader")
         let base = URL(string: Bundle.main.object(forInfoDictionaryKey: "GalleryServerURL") as? String ?? "https://192.168.1.197:7777")!
-        store = GalleryStore(root: root, api: GalleryAPI(base: base, certificateURL: Bundle.main.url(forResource: "LocalCA", withExtension: "cer")))
+        let certificate = Bundle.main.url(forResource: "LocalCA", withExtension: "cer")
+        store = GalleryStore(root: root, api: GalleryAPI(base: base, certificateURL: certificate))
+        background = BackgroundDownloads(root: root, base: base, certificateURL: certificate)
         super.init(nibName: nil, bundle: nil)
     }
     required init?(coder: NSCoder) { fatalError("init(coder:) is unused") }
@@ -91,6 +94,15 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     func capturePosition() {
         webView?.evaluateJavaScript("window.galleryViewState?.save()", completionHandler: nil)
     }
+    // Leaving the screen (or just Control Center): hand the unfinished pages to iOS while the app
+    // is still active (BackgroundDownloads).
+    func handOffDownloads() {
+        let task = UIApplication.shared.beginBackgroundTask(withName: "Hand off downloads")
+        Task { [store, background] in
+            await background.handOff(await store.backgroundWork())
+            UIApplication.shared.endBackgroundTask(task)
+        }
+    }
     func pause() {
         capturePosition()
         foreground = false
@@ -100,7 +112,11 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         warming?.cancel()
         Task { [store] in await store.cancelTransfers() }
     }
+    // Back on screen the app's own downloads take over again. Only a real trip to the background
+    // stopped them; Control Center or Face ID leave everything running (and the catalog as it is).
     func resume() {
+        Task { [background] in await background.reclaim() }
+        guard !foreground else { return }
         foreground = true
         startAutomaticWork()
     }

@@ -478,6 +478,28 @@ actor GalleryStore {
         }
     }
 
+    // The unfinished pages the background transfers take over while the app is away (as
+    // downloadAll orders them: priority galleries first, previews before originals), at most `limit`.
+    func backgroundWork(limit: Int = 2000) -> [BackgroundDownloads.Item] {
+        let indices = library.galleries.indices
+        var items: [BackgroundDownloads.Item] = []
+        for index in indices.filter({ priorityGalleries.contains($0) }) + indices.filter({ !priorityGalleries.contains($0) }) {
+            let saved = library.galleries[index]
+            for thumbnail in [true, false] {
+                let pages = thumbnail ? (saved.manifest.thumbnails?.pages ?? []) : saved.manifest.pages
+                let done = (thumbnail ? extras[saved.item.key] : originalExtras[saved.item.key]) ?? []
+                for number in stride(from: thumbnail ? saved.thumbnailCount : saved.originalCount, to: pages.count, by: 1)
+                where !done.contains(number) {
+                    guard let file = Self.file(root: root, saved: saved, page: number, thumbnail: thumbnail),
+                          !DurableFile.matches(file, size: pages[number].size) else { continue }
+                    items.append(.init(path: pages[number].url, file: String(file.path.dropFirst(root.path.count + 1)), size: pages[number].size))
+                    if items.count >= limit { return items }
+                }
+            }
+        }
+        return items
+    }
+
     private func nextGallery(excluding scheduled: Set<Int>) -> Int? {
         let pending = library.galleries.indices.filter { index in
             let saved = library.galleries[index]

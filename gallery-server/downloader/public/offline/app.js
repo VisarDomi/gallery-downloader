@@ -87,7 +87,7 @@ function runRetry() {
 const $ = id => document.getElementById(id);
 const params = new URLSearchParams(location.search);
 const readerKey = /^(hitomi|imhentai)-[1-9]\d*$/.test(params.get('read') || '') ? params.get('read') : null;
-const pageNumber = Math.max(1, Math.floor(Number(params.get('p')) || 1));
+let pageNumber = Math.max(1, Math.floor(Number(params.get('p')) || 1)), changingPage = false;
 const readUrl = (key, index) => `/?read=${key}&page=${index + 1}`;
 let worker, rpcId = 0, catalog = [], downloads = new Map(), active = false, supported = false, suspended = false;
 let gridVersion = '', renderedReader = false, openingReader = false;
@@ -267,15 +267,24 @@ async function populateRow(row, item) {
 function renderCatalog() {
     totals();
     if (readerKey) return;
-    const signature = JSON.stringify(catalog.map(i => [i.key, i.title, i.ready]));
+    const signature = JSON.stringify([pageNumber, catalog.map(i => [i.key, i.title, i.ready])]);
     if (signature === gridVersion) return; // Keep DOM/strip scroll when returning through bfcache.
     gridVersion = signature;
-    for (const slot of slots) release(slot);
-    slots.clear(); rows.clear();
+    // A later list (favorites changed on the PC, a gallery finished saving) keeps the rows it
+    // still has, with their loaded thumbnails, and the reader's place, re-anchored after the rebuild.
+    const kept = positionReady && !changingPage ? capturePosition() : null;
+    const previous = new Map(rows);
+    rows.clear();
     const fragment = document.createDocumentFragment();
     const totalPages = Math.max(1, Math.ceil(catalog.length / 25)), current = Math.min(pageNumber, totalPages);
     const items = catalog.slice((current - 1) * 25, current * 25);
     for (const item of items) {
+        const existing = previous.get(item.key);
+        if (existing && existing.galleryItem.title === item.title) {
+            previous.delete(item.key); existing.galleryItem = item;
+            existing.querySelector('.info-btn').onclick = () => showInfo(existing, item);
+            rows.set(item.key, existing); fragment.append(existing); continue;
+        }
         const row = document.createElement('div'); row.className = 'hs-row-wrap'; row.galleryItem = item;
         const message = document.createElement('p'); message.className = 'row-message';
         const link = document.createElement('a'); link.href = readUrl(item.key, 0); link.textContent = item.title; message.append(link);
@@ -284,17 +293,36 @@ function renderCatalog() {
         info.setAttribute('aria-label', `Information: ${item.title}`); info.onclick = () => showInfo(row, item);
         overlay.append(info); row.append(message, overlay); rows.set(item.key, row); fragment.append(row);
     }
+    for (const row of previous.values()) for (const slot of row.querySelectorAll('.thumb-link')) { release(slot); slots.delete(slot); }
     $('hs-grid').replaceChildren(fragment);
+    if (kept) {
+        for (const [key, left] of Object.entries(kept.strips)) { const strip = rows.get(key)?.querySelector('.hs-row'); if (strip) strip.scrollLeft = left; }
+        savedPosition = kept; positionReady = false;
+    }
     const pagination = document.createDocumentFragment(), favs = document.createElement('a');
     favs.href = '/'; favs.className = 'hs-page-favs'; favs.textContent = 'Favs'; pagination.append(favs);
+    // As Hitomi and Imhen: another page replaces the rows in place and starts at its first row.
     for (let page = 1; page <= totalPages; page++) {
-        const link = document.createElement('a'); link.href = `/?p=${page}`; link.textContent = page;
-        link.className = page === current ? 'hs-page-active' : 'hs-page-link';
-        if (page === current) link.setAttribute('aria-current', 'page'); pagination.append(link);
+        if (page === current) {
+            const active = document.createElement('span'); active.className = 'hs-page-active'; active.textContent = page;
+            active.setAttribute('aria-current', 'page'); pagination.append(active); continue;
+        }
+        const link = document.createElement('a'); link.href = `/?p=${page}`; link.textContent = page; link.className = 'hs-page-link';
+        link.onclick = event => { event.preventDefault(); showPage(page); };
+        pagination.append(link);
     }
     $('pagination').replaceChildren(pagination);
     restorePosition(); loadImages();
     mark('Catalog rows rendered');
+}
+function showPage(page) {
+    pageNumber = page;
+    history.replaceState(null, '', `/?p=${page}`);
+    heldAnchor = null; savedPosition = null;
+    changingPage = true;
+    try { renderCatalog(); } finally { changingPage = false; }
+    $('hs-grid').scrollIntoView();
+    void savePosition();
 }
 async function showInfo(row, item) {
     const dialog = document.createElement('dialog'); dialog.className = 'hs-modal';

@@ -52,3 +52,18 @@ the current page and the reader every image as soon as its DOM exists; WebKit ow
 decoding. The scroll-settle and image-retry helpers in `app.js` mirror gallery-reader's
 `src/core/{scroll-settle,image-retry}.ts`. All images and image links disable
 callouts, selection and dragging.
+
+## Away from the screen
+
+Downloads continue while the app is away (locked, in the background, or closed by iOS;
+a force-quit from the app switcher stops them): when the app resigns active,
+`BackgroundDownloads` hands the unfinished pages (priority galleries first, previews before
+originals, up to 2000) to a background URLSession, which commits each file exactly as the
+store does (expected size, atomic rename). Back on screen the remaining transfers are
+cancelled and the app's own downloads carry on, counting the committed files as saved.
+Background URLSessions need no background mode or entitlement.
+
+Control Center or Face ID leave downloads and the catalog untouched; only a real trip to
+the background stops them and refreshes the catalog on return. A changed catalog keeps the
+rows it still has (and their loaded thumbnails) and the current position. Page numbers
+replace the rows in place and start at the first row, as in Hitomi and Imhen.
