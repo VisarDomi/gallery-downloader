@@ -5,7 +5,8 @@ import KitCore
 // The app's trips away from the screen, told apart as the apps need them: resigning active
 // (Control Center, Face ID, a banner, the app switcher, locking) only saves and hands work to
 // iOS; a real trip to the background pauses; coming back after a real trip resumes, while
-// coming back from Control Center changes nothing.
+// coming back from Control Center changes nothing. (Application-level notifications: they
+// arrive with and without scenes.)
 @MainActor
 public final class AppLifecycle {
     public static let shared = AppLifecycle()
@@ -20,13 +21,13 @@ public final class AppLifecycle {
     private init() {
         let center = NotificationCenter.default
         observers = [
-            center.addObserver(forName: UIScene.willDeactivateNotification, object: nil, queue: .main) { _ in
+            center.addObserver(forName: UIApplication.willResignActiveNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { AppLifecycle.shared.resigned() }
             },
-            center.addObserver(forName: UIScene.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
+            center.addObserver(forName: UIApplication.didEnterBackgroundNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { AppLifecycle.shared.enteredBackground() }
             },
-            center.addObserver(forName: UIScene.didActivateNotification, object: nil, queue: .main) { _ in
+            center.addObserver(forName: UIApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
                 MainActor.assumeIsolated { AppLifecycle.shared.activated() }
             },
         ]

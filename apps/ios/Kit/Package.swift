@@ -19,6 +19,7 @@ let package = Package(
         .library(name: "KitReader", targets: ["KitReader"]),
         .library(name: "KitLifecycle", targets: ["KitLifecycle"]),
         .library(name: "KitTestHooks", targets: ["KitTestHooks"]),
+        .library(name: "KitMigration", targets: ["KitMigration"]),
     ],
     targets: [
         .target(name: "KitCore"),
@@ -31,6 +32,8 @@ let package = Package(
         .target(name: "KitLifecycle", dependencies: ["KitCore", "KitNet"]),
         // Simulator builds only: drives the app from the Mac (see TestHooks.swift).
         .target(name: "KitTestHooks", dependencies: ["KitCore"]),
+        // Once per app: data the web version kept in WebKit's storage (WebStorageReader.swift).
+        .target(name: "KitMigration", dependencies: ["KitCore"]),
         .testTarget(name: "KitCoreTests", dependencies: ["KitCore"]),
         .testTarget(name: "KitNetTests", dependencies: ["KitNet"]),
         .testTarget(name: "KitHTMLTests", dependencies: ["KitHTML"]),
