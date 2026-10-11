@@ -4,8 +4,8 @@ The runtime is deliberately small:
 
 - `gallery-sources`: Hitomi/IMHentai download descriptors
 - `gallery-server/downloader`: HTTPS favorites API, durable queue, acquisition, manual reconcile, and the `/offline-api` the Gallery Reader app reads
-- `gallery-server/downloader/public/offline`: the offline UI bundled into the Gallery Reader app (`apps/ios`)
-- `gallery-server/scripts`: favorites command wrappers and offline UI tests
+- `apps/ios`: the native Gallery Reader app (UIKit on NativeKit, vendored as `apps/ios/Kit`)
+- `gallery-server/scripts`: favorites command wrappers
 - `systemd/user`: downloader and Gallery Xvfb `:112` units
 
 Ports:
@@ -20,7 +20,6 @@ Operational rules:
 - IMHentai Chromium must always close in `finally` and use the dedicated `:112` profile/display.
 - Protect Chromium BrowserMetrics (`~/.config/chromium-gallery/BrowserMetrics`) with mode `0500` before each launch; it once filled 60 GiB with diagnostic files. Do not reintroduce unbounded job retries; failed state/cooldowns must survive restart and favorites sync.
 - Source thumbnails only: Hitomi gallery-dl; IMHentai's own thumbnail URL pattern, independent of original extensions. No generated substitutes.
-- Keep the offline UI's scroll-settle and image-retry helpers faithful to gallery-reader's `src/core/{scroll-settle,image-retry}.ts`.
 
 Start diagnosis with:
 

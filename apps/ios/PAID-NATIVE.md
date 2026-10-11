@@ -7,13 +7,12 @@ Its library comes from the PC favorites pipeline.
 Start with [shared Mac access](/home/visar/Documents/environment/mac-access.md).
 Ethernet address: `192.168.1.198`, user `visar`; when it does not answer, SSH falls
 back to the Mac's Wi-Fi automatically (`mac-connect --check` in that runbook). The Mac mirror is
-`/Users/visar/Developer/gallery-downloader` (this repository's `apps/ios` and
-`gallery-server/downloader/public/offline`).
+`/Users/visar/Developer/gallery-downloader` (this repository's `apps/ios`).
 
 ## Build and install
 
-Sync `apps/ios` (without `build/` and the generated `Resources/Web/`) and
-`gallery-server/downloader/public/offline` to the mirror, then build attached in
+Sync `apps/ios` (with `--delete`, without `build/` and keeping the mirror's
+`Resources/LocalCA.cer`) to the mirror, then build attached in
 the Mac GUI session for Keychain access, recording the build for renewal approval
 before and after it:
 
@@ -30,9 +29,8 @@ sudo -n launchctl asuser 501 sudo -n -H -u visar /usr/bin/env \
 
 The physical `GalleryReader` scheme is used when SIGNING_DEVICE is supplied, so the
 profile includes the phone. Do not install an app solely because Xcode says build
-succeeded: verify the full code signature, team, bundle ID, phone inclusion, expiry
-and bundled Web file hashes first. Output:
-`apps/ios/build/Debug-iphoneos/GalleryReader.app`; install it with `devicectl
+succeeded: verify the full code signature, team, bundle ID, phone inclusion and expiry
+first. Output: `apps/ios/build/Release-iphoneos/GalleryReader.app`; install it with `devicectl
 device install app --device <UDID> <app>`, which keeps the app's data. Then run the
 same `deliver.py` command with `installed`: it approves the installed app as the
 renewal baseline only if neither its inputs nor the app changed since the build. There are
@@ -44,17 +42,16 @@ Gallery renews monthly with its paid identity through this repository's
 scheduler, `com.visar.renewal.gallery-downloader` ([REFRESH.md](REFRESH.md)). See
 the [environment recovery copy](/home/visar/Documents/environment/mac-renewal/RECOVERY.md).
 
-## Offline UI
+## Native UI
 
-The app bundles `gallery-server/downloader/public/offline` (`app.js`, `style.css`,
-`index.html`) through `scripts/prepare-web.sh`. Home loads every thumbnail on the
-current page and the reader every image, with no viewport window and nothing released
-offscreen, the ones on screen first: eight at a time, each next one the closest to the
-screen (a strip's own horizontal scroll included), re-ordered as scrolling moves. Images
-load straight from their `gallery://app/media/<key>/{thumbnails,pages}/<index>` files
-(a gallery whose thumbnails are requested downloads first); WebKit owns decoding. The scroll-settle and image-retry helpers in `app.js` mirror gallery-reader's
-`src/core/{scroll-settle,image-retry}.ts`. All images and image links disable
-callouts, selection and dragging.
+The app is UIKit on NativeKit (`apps/ios/Kit`, vendored by ios-tools
+`native/scripts/vendor-kit.py`; a changed copy is a changed renewal input). Home loads every
+thumbnail of the current page and the reader every page as they come near the screen, the
+closest first (a strip's own sideways scroll included), decoded at display size off the main
+thread with a bounded memory cache; a file not saved yet downloads ahead of the background
+work (a gallery whose thumbnails are requested downloads first). Screens stay alive in the
+navigation stack, which is saved with each screen's position and rebuilt at launch; the first
+native launch builds it from the web version's `view-state.json`.
 
 ## Away from the screen
 
