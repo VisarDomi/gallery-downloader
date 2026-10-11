@@ -1,22 +1,38 @@
 import UIKit
 
 @main
-@MainActor
 final class AppDelegate: UIResponder, UIApplicationDelegate {
-    var window: UIWindow?
-    private var browser: WebController!
+    // Created at launch, also when iOS relaunches the app in the background to deliver
+    // finished transfers (no scene then).
+    let controller = AppController()
+
     func application(_ application: UIApplication, didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]?) -> Bool {
-        browser = WebController()
-        window = UIWindow(frame: UIScreen.main.bounds)
-        window?.overrideUserInterfaceStyle = .dark
-        window?.rootViewController = browser
-        window?.makeKeyAndVisible()
-        return true
+        true
     }
-    func applicationWillResignActive(_ application: UIApplication) { browser.capturePosition(); browser.handOffDownloads() }
-    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String, completionHandler: @escaping () -> Void) {
-        browser.background.handleEvents(completionHandler)
+
+    func application(_ application: UIApplication, configurationForConnecting session: UISceneSession,
+                     options: UIScene.ConnectionOptions) -> UISceneConfiguration {
+        let configuration = UISceneConfiguration(name: nil, sessionRole: session.role)
+        configuration.delegateClass = SceneDelegate.self
+        return configuration
     }
-    func applicationDidBecomeActive(_ application: UIApplication) { browser.resume() }
-    func applicationDidEnterBackground(_ application: UIApplication) { browser.pause() }
+
+    func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
+                     completionHandler: @escaping () -> Void) {
+        controller.background.handleEvents(completionHandler)
+    }
+}
+
+final class SceneDelegate: UIResponder, UIWindowSceneDelegate {
+    var window: UIWindow?
+
+    func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options connectionOptions: UIScene.ConnectionOptions) {
+        guard let scene = scene as? UIWindowScene, let app = UIApplication.shared.delegate as? AppDelegate else { return }
+        let window = UIWindow(windowScene: scene)
+        window.overrideUserInterfaceStyle = .dark
+        window.backgroundColor = .black
+        window.rootViewController = app.controller.makeNavigation()
+        window.makeKeyAndVisible()
+        self.window = window
+    }
 }

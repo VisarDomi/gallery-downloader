@@ -30,13 +30,13 @@ struct StartupBenchmark {
         try await reopened.load()
         metrics["store_load_ms"] = Date().timeIntervalSince(start) * 1000
         start = Date()
-        _ = try await reopened.webSnapshot()
+        _ = await reopened.libraryState()
         metrics["web_snapshot_ms"] = Date().timeIntervalSince(start) * 1000
         start = Date()
         let firstItems = CommandLine.arguments.count > 2
             ? try JSONDecoder().decode([GalleryItem].self, from: Data(contentsOf: URL(fileURLWithPath: CommandLine.arguments[2])))
             : library.galleries.map(\.item)
-        for item in firstItems.prefix(4) { _ = try await reopened.webGallery(item.key) }
+        for item in firstItems.prefix(4) { _ = try await reopened.gallery(item.key) }
         metrics["first_four_galleries_ms"] = Date().timeIntervalSince(start) * 1000
         start = Date()
         await reopened.warmRemaining()

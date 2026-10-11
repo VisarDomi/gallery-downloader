@@ -1,4 +1,5 @@
 import Foundation
+import KitCore
 
 // Galleries keep downloading while the app is away: locked, in the background, or closed by iOS.
 // When the app leaves the screen, the unfinished pages (priority galleries first, previews before
@@ -71,7 +72,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
         guard let item = downloadTask.taskDescription.flatMap(Self.decode),
               let http = downloadTask.response as? HTTPURLResponse, http.statusCode == 200,
               http.mimeType?.hasPrefix("image/") == true else { return }
-        do { try DurableFile.commitDownload(location, to: root.appendingPathComponent(item.file), expectedSize: item.size) }
+        do { try DurableFile.commit(location, to: root.appendingPathComponent(item.file), expectedSize: item.size) }
         catch { print("Background page:", error.localizedDescription) }
     }
 

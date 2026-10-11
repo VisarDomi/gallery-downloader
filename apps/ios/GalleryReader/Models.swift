@@ -196,3 +196,48 @@ struct ViewState: Codable, Sendable {
     var libraryPath = "/"
     var positions: [String: ViewPosition] = [:]
 }
+
+// One gallery's saved originals or thumbnails, as the library and info sheet show them.
+struct DownloadState: Sendable, Equatable {
+    let downloaded: Int
+    let total: Int
+    let complete: Bool
+    let bytes: Int64
+}
+
+struct LibraryState: Sendable {
+    var catalog: [GalleryItem] = []
+    var originals: [String: DownloadState] = [:]
+    var thumbnails: [String: DownloadState] = [:]
+    var running = false
+    var message = "Loading…"
+}
+
+// Where a screen is. The paths are the ones the web version used, so view-state.json keeps
+// working across the switch: "/?p=N" (or "/") and "/?read=<key>&page=N".
+enum Route: Codable, Hashable, Sendable {
+    case library(page: Int)
+    case reader(key: String, page: Int)
+
+    var path: String {
+        switch self {
+        case .library(let page): page <= 1 ? "/" : "/?p=\(page)"
+        case .reader(let key, let page): "/?read=\(key)&page=\(page)"
+        }
+    }
+
+    init?(path: String) {
+        guard let route = ViewPosition.route(path), let components = URLComponents(string: path) else { return nil }
+        let values = Dictionary((components.queryItems ?? []).map { ($0.name, $0.value ?? "") }, uniquingKeysWith: { first, _ in first })
+        if route.hasPrefix("reader:") { self = .reader(key: String(route.dropFirst("reader:".count)), page: Int(values["page"] ?? "1") ?? 1) }
+        else { self = .library(page: Int(values["p"] ?? "1") ?? 1) }
+    }
+
+    // The view-state.json key.
+    var stateKey: String {
+        switch self {
+        case .library(let page): "library:\(page)"
+        case .reader(let key, _): "reader:\(key)"
+        }
+    }
+}

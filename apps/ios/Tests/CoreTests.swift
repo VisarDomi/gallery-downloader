@@ -1,4 +1,5 @@
 import Foundation
+import KitCore
 
 func expect(_ condition: @autoclosure () -> Bool, _ message: String) throws {
     if !condition() { throw NSError(domain: "CoreTests", code: 1, userInfo: [NSLocalizedDescriptionKey: message]) }
@@ -103,12 +104,12 @@ struct CoreTests {
         try DurableFile.write(Data([1, 2, 3, 4]), to: destination)
         try DurableFile.write(Data([9]), to: temporary)
         var rejected = false
-        do { try DurableFile.commitDownload(temporary, to: destination, expectedSize: 4) } catch { rejected = true }
+        do { try DurableFile.commit(temporary, to: destination, expectedSize: 4) } catch { rejected = true }
         try expect(rejected, "Reject partial download")
         let retained = try Data(contentsOf: destination)
         try expect(retained == Data([1, 2, 3, 4]), "Failed download preserves existing file")
         try DurableFile.write(Data([5, 6, 7, 8]), to: temporary)
-        try DurableFile.commitDownload(temporary, to: destination, expectedSize: 4)
+        try DurableFile.commit(temporary, to: destination, expectedSize: 4)
         try expect(DurableFile.matches(destination, size: 4), "Committed page can resume without transfer")
         print("PASS: selection, manifest validation, partial-file rejection, atomic replacement")
 
@@ -133,18 +134,15 @@ struct CoreTests {
         let emptyStore = GalleryStore(root: root.appendingPathComponent("empty"), api: emptySource)
         try await emptyStore.load()
         try await emptyStore.downloadAll()
-        let emptyPayload = try await emptyStore.webSnapshot()
-        let emptyJSON = try JSONSerialization.jsonObject(with: Data(emptyPayload.utf8)) as! [String: Any]
-        try expect((emptyJSON["catalog"] as! [String: Any])["items"] as? [String] == [], "Empty library renders an empty catalog")
+        let emptyState = await emptyStore.libraryState()
+        try expect(emptyState.catalog.isEmpty, "Empty library renders an empty catalog")
         let retainedStore = GalleryStore(root: failedRoot, api: emptySource)
         try await retainedStore.load()
         try await retainedStore.refreshCatalog()
         let retainedLibrary = try await retainedStore.snapshot()
         try expect(retainedLibrary.galleries.map(\.item.key) == copies.map(\.item.key), "An empty server catalog preserves saved galleries")
-        let retainedPayload = try await retainedStore.webSnapshot()
-        let retainedJSON = try JSONSerialization.jsonObject(with: Data(retainedPayload.utf8)) as! [String: Any]
-        let retainedItems = (retainedJSON["catalog"] as! [String: Any])["items"] as! [[String: Any]]
-        try expect(retainedItems.compactMap { $0["key"] as? String } == copies.map(\.item.key), "Offline-only galleries retain display order")
+        let retainedState = await retainedStore.libraryState()
+        try expect(retainedState.catalog.map(\.key) == copies.map(\.item.key), "Offline-only galleries retain display order")
         print("PASS: empty catalogs and retained offline galleries")
         let libraryPosition = ViewPosition(path: "/?p=2", anchor: "hitomi-34", page: nil, fraction: 0.3, y: 2068, strips: ["hitomi-34": 1337])
         let readerPosition = ViewPosition(path: "/?read=hitomi-34&page=50", anchor: nil, page: 49, fraction: 0.37, y: 54000, strips: [:])
@@ -162,10 +160,10 @@ struct CoreTests {
         try await cold.load()
         let initiallyLoaded = await cold.loadedGalleryCount()
         try expect(initiallyLoaded == 0, "Cold load reads no per-image metadata")
-        _ = try await cold.webSnapshot()
+        _ = await cold.libraryState()
         let afterCatalog = await cold.loadedGalleryCount()
         try expect(afterCatalog == 0, "Rendering the full catalog does not hydrate manifests")
-        _ = try await cold.webGallery(copies[0].item.key)
+        _ = try await cold.gallery(copies[0].item.key)
         let afterVisible = await cold.loadedGalleryCount()
         try expect(afterVisible == 1, "Visible gallery loads independently")
         await cold.warmRemaining()
@@ -217,15 +215,13 @@ struct CoreTests {
             try expect(repeated.galleries.count == 31, "Repeated sync does not duplicate entries")
             let newest = synced.galleries.first { !oldKeys.contains($0.item.key) }!
             let lastOriginal = newest.manifest.pages.count - 1
-            let pageURL = URL(string: "gallery://app/media/\(newest.item.key)/pages/\(lastOriginal)")!
-            _ = try await restarted.localResource(pageURL)
+            _ = try await restarted.mediaFile(newest.item.key, index: lastOriginal, thumbnail: false)
             let earlyPage = try await restarted.snapshot().galleries.first { $0.item.key == newest.item.key }!
             try expect(earlyPage.originalCount == 0, "Reading a late page does not falsely mark earlier pages saved")
             let lastThumbnail = newest.manifest.thumbnails!.pages.count - 1
-            let thumbURL = URL(string: "gallery://app/media/\(newest.item.key)/thumbnails/\(lastThumbnail)")!
             let beforePriority = await api.transferStatistics().requests
-            async let visibleA = restarted.localResource(thumbURL)
-            async let visibleB = restarted.localResource(thumbURL)
+            async let visibleA = restarted.mediaFile(newest.item.key, index: lastThumbnail, thumbnail: true)
+            async let visibleB = restarted.mediaFile(newest.item.key, index: lastThumbnail, thumbnail: true)
             _ = try await (visibleA, visibleB)
             let afterPriority = await api.transferStatistics().requests
             try expect(afterPriority - beforePriority == 1, "Concurrent visible thumbnail requests share one transfer")
@@ -235,8 +231,8 @@ struct CoreTests {
             try expect(progress.count < metadata.count / 10, "Image checkpoints exclude bulky manifests")
             let reopened = GalleryStore(root: root.appendingPathComponent("library"), api: source)
             try await reopened.load()
-            _ = try await reopened.localResource(thumbURL)
-            _ = try await reopened.localResource(pageURL)
+            _ = try await reopened.mediaFile(newest.item.key, index: lastThumbnail, thumbnail: true)
+            _ = try await reopened.mediaFile(newest.item.key, index: lastOriginal, thumbnail: false)
             let afterReopen = await api.transferStatistics().requests
             try expect(afterReopen == afterPriority, "Out-of-order visible thumbnail and original survive restart without another transfer")
             try await reopened.downloadAll()
@@ -253,9 +249,7 @@ struct CoreTests {
             let fullRefresh = Task { try await fullStore.refreshCatalog() }
             for await event in fullStore.events {
                 if !event.library.galleries.isEmpty {
-                    let payload = try await fullStore.webSnapshot()
-                    let json = try JSONSerialization.jsonObject(with: Data(payload.utf8)) as! [String: Any]
-                    let entries = (json["catalog"] as! [String: Any])["items"] as! [Any]
+                    let entries = await fullStore.libraryState().catalog
                     try expect(entries.count == expected.count, "Entire entry list is available while manifests are still loading")
                     break
                 }

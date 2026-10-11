@@ -1,4 +1,5 @@
 import Foundation
+import KitCore
 
 struct StoreEvent: Sendable {
     let library: LibrarySnapshot
@@ -49,8 +50,6 @@ actor GalleryStore {
     private var manifestTasks: [String: Task<GalleryManifest, Error>] = [:]
     private var syncing = false
     private var catalogDirty = false
-    private var catalogChanged = true
-    private var changedKeys = Set<String>()
     private var validatedKeys = Set<String>()
     private var savedViewState: ViewState?
     private var startupMetrics: [String: Double] = [:]
@@ -124,91 +123,61 @@ actor GalleryStore {
         publish(summary())
     }
 
-    func webSnapshot(full: Bool = true) throws -> String {
-        let includeCatalog = full || catalogChanged
-        let keys = includeCatalog ? catalogItems.map(\.key) : Array(changedKeys)
-        let states = keys.flatMap { key -> [[String: Any]] in
+    // The library as the screens show it: the catalog in display order and each gallery's
+    // saved originals and thumbnails.
+    func libraryState() -> LibraryState {
+        var originals: [String: DownloadState] = [:], thumbnails: [String: DownloadState] = [:]
+        for item in catalogItems {
+            let key = item.key
             if let index = indexByKey[key] {
                 let saved = library.galleries[index]
-                var result = [webState(saved, thumbnail: false)]
-                if saved.manifest.thumbnails != nil { result.append(webState(saved, thumbnail: true)) }
-                return result
+                originals[key] = downloadState(saved, thumbnail: false)
+                if saved.manifest.thumbnails != nil { thumbnails[key] = downloadState(saved, thumbnail: true) }
+                continue
             }
-            guard let header = headers[key] else { return [] }
+            guard let header = headers[key] else { continue }
             let state = savedProgress[key]
             let originalCount = state?.originalCount ?? header.originalCount
             let thumbnailCount = state?.thumbnailCount ?? header.thumbnailCount
-            var result: [[String: Any]] = [["key": key, "downloaded": originalCount + (state?.extraOriginals?.count ?? 0),
-                "total": header.item.pages, "complete": originalCount == header.item.pages,
-                "bytes": state?.originalBytes ?? header.originalSavedBytes]]
+            originals[key] = DownloadState(downloaded: originalCount + (state?.extraOriginals?.count ?? 0), total: header.item.pages,
+                                           complete: originalCount == header.item.pages, bytes: state?.originalBytes ?? header.originalSavedBytes)
             if header.thumbnailRevision != nil {
-                result.append(["key": key + ":thumbs", "downloaded": thumbnailCount + (state?.extraThumbnails.count ?? 0),
-                    "total": header.item.pages, "complete": thumbnailCount == header.item.pages,
-                    "bytes": state?.thumbnailBytes ?? header.thumbnailSavedBytes])
+                thumbnails[key] = DownloadState(downloaded: thumbnailCount + (state?.extraThumbnails.count ?? 0), total: header.item.pages,
+                                                complete: thumbnailCount == header.item.pages, bytes: state?.thumbnailBytes ?? header.thumbnailSavedBytes)
             }
-            return result
         }
-        var value: [String: Any] = ["supported": true, "downloads": states, "running": busy || syncing, "message": message]
-        if includeCatalog {
-            value["catalog"] = ["version": 1, "items": try JSONSerialization.jsonObject(with: JSONEncoder().encode(catalogItems))]
-        }
-        let json = try webJSON(value)
-        catalogChanged = false
-        changedKeys.removeAll()
-        return json
+        return LibraryState(catalog: catalogItems, originals: originals, thumbnails: thumbnails, running: busy || syncing, message: message)
     }
 
-    private func webState(_ saved: SavedGallery, thumbnail: Bool) -> [String: Any] {
+    private func downloadState(_ saved: SavedGallery, thumbnail: Bool) -> DownloadState {
         let count = thumbnail ? saved.thumbnailCount : saved.originalCount
         let pages = thumbnail ? (saved.manifest.thumbnails?.pages ?? []) : saved.manifest.pages
         let extra = thumbnail ? (extras[saved.item.key] ?? []) : (originalExtras[saved.item.key] ?? [])
         let bytes = count > 0 ? pages[count - 1].offset + pages[count - 1].size : 0
-        return ["key": saved.item.key + (thumbnail ? ":thumbs" : ""), "downloaded": count + extra.count,
-                "total": pages.count, "complete": count == pages.count,
-                "bytes": bytes + extra.reduce(Int64(0)) { $0 + pages[$1].size }]
+        return DownloadState(downloaded: count + extra.count, total: pages.count, complete: count == pages.count,
+                             bytes: bytes + extra.reduce(Int64(0)) { $0 + pages[$1].size })
     }
 
-    private func webJSON(_ value: Any) throws -> String {
-        String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
-    }
-
-    // A gallery for the page (describe, open): its manifest and saved state.
-    func webGallery(_ key: String) async throws -> String {
+    // A gallery's manifest and saved originals (a row's strip, the reader).
+    func gallery(_ key: String) async throws -> (manifest: GalleryManifest, state: DownloadState) {
         interactive += 1
         defer { interactive -= 1 }
         let saved = library.galleries[try await ensureManifest(key, urgent: true)]
-        let manifest = try JSONSerialization.jsonObject(with: JSONEncoder().encode(saved.manifest))
-        return try webJSON(["manifest": manifest, "state": webState(saved, thumbnail: false)])
+        return (saved.manifest, downloadState(saved, thumbnail: false))
     }
 
-    func localResource(_ url: URL) async throws -> (data: Data, mime: String) {
+    // A page or thumbnail file: read if saved, otherwise downloaded first, ahead of the
+    // background work. A gallery whose thumbnails are on screen downloads first.
+    func mediaFile(_ key: String, index: Int, thumbnail: Bool) async throws -> URL {
         try Task.checkCancellation()
-        guard url.scheme == "gallery", url.host == "app" else { throw ReaderError.missingImage }
-        let components = url.path.split(separator: "/").map(String.init)
-        var file: URL
-        if components.first == "media" {
-            guard components.count == 4, let index = Int(components[3]), index >= 0,
-                  ["pages", "thumbnails"].contains(components[2]),
-                  headers[components[1]] != nil else { throw ReaderError.missingImage }
-            interactive += 1
-            defer { interactive -= 1 }
-            let galleryIndex = try await ensureManifest(components[1], urgent: true)
-            let saved = library.galleries[galleryIndex]
-            let thumbnail = components[2] == "thumbnails"
-            guard index < (thumbnail ? (saved.manifest.thumbnails?.pages.count ?? 0) : saved.manifest.pages.count)
-            else { throw ReaderError.missingImage }
-            // A gallery whose thumbnails are on screen downloads first.
-            if thumbnail { priorityGalleries.insert(galleryIndex) }
-            file = try await ensureMedia(MediaID(gallery: galleryIndex, page: index, thumbnail: thumbnail), urgent: true)
-        } else {
-            let name = url.path == "/" || url.path.isEmpty ? "index.html" : String(url.path.dropFirst())
-            guard ["index.html", "app.js", "style.css", "native.js"].contains(name),
-                  let found = Bundle.main.url(forResource: name, withExtension: nil, subdirectory: "Web") else { throw ReaderError.missingImage }
-            file = found
-        }
-        let mime = ["html": "text/html", "js": "text/javascript", "css": "text/css", "jpg": "image/jpeg",
-                    "jpeg": "image/jpeg", "png": "image/png", "gif": "image/gif", "webp": "image/webp", "avif": "image/avif"][file.pathExtension.lowercased()] ?? "application/octet-stream"
-        return (try Data(contentsOf: file, options: .mappedIfSafe), mime)
+        guard headers[key] != nil, index >= 0 else { throw ReaderError.missingImage }
+        interactive += 1
+        defer { interactive -= 1 }
+        let galleryIndex = try await ensureManifest(key, urgent: true)
+        let saved = library.galleries[galleryIndex]
+        guard index < (thumbnail ? (saved.manifest.thumbnails?.pages.count ?? 0) : saved.manifest.pages.count) else { throw ReaderError.missingImage }
+        if thumbnail { priorityGalleries.insert(galleryIndex) }
+        return try await ensureMedia(MediaID(gallery: galleryIndex, page: index, thumbnail: thumbnail), urgent: true)
     }
 
     func load() async throws {
@@ -288,9 +257,8 @@ actor GalleryStore {
         savedViewState = state
     }
 
-    func recordStartup(_ marks: Data) throws {
-        let web = try JSONSerialization.jsonObject(with: marks)
-        let data = try JSONSerialization.data(withJSONObject: ["native": startupMetrics, "web": web], options: [.sortedKeys])
+    func recordStartup(_ marks: [String: Double]) throws {
+        let data = try JSONSerialization.data(withJSONObject: ["native": startupMetrics.merging(marks) { $1 }], options: [.sortedKeys])
         try DurableFile.write(data, to: root.appendingPathComponent("startup.json"))
     }
 
@@ -326,7 +294,6 @@ actor GalleryStore {
             }
             let index = library.galleries.count
             library.galleries.append(saved); indexByKey[key] = index; validatedKeys.insert(key)
-            changedKeys.insert(key)
             return index
         }
         guard let item = catalogItems.first(where: { $0.key == key }) else { throw ReaderError.missingImage }
@@ -353,7 +320,6 @@ actor GalleryStore {
         indexByKey[key] = index
         validatedKeys.insert(key)
         catalogDirty = true
-        changedKeys.insert(key)
         publish("\(catalogItems.count) favorites · \(library.galleries.count) ready")
         return index
     }
@@ -366,7 +332,6 @@ actor GalleryStore {
             let remote = try CatalogSelection.completed(await api.catalog())
             let ordered = CatalogSelection.ordered(remote: remote, saved: catalogItems)
             if ordered != catalogItems {
-                catalogChanged = true
                 catalogItems = ordered
                 try DurableFile.write(try JSONEncoder().encode(catalogItems), to: root.appendingPathComponent("catalog.json"))
             }
@@ -536,7 +501,8 @@ actor GalleryStore {
                 let temporary = try await api.download(page, urgent: urgent)
                 defer { try? FileManager.default.removeItem(at: temporary) }
                 try Task.checkCancellation()
-                try DurableFile.commitDownload(temporary, to: destination, expectedSize: page.size)
+                do { try DurableFile.commit(temporary, to: destination, expectedSize: page.size) }
+                catch DurableFileError.wrongSize { throw ReaderError.wrongSize }
             }
             return destination
         }
@@ -561,7 +527,6 @@ actor GalleryStore {
             checkpointChanges += 1
         }
         try checkpoint()
-        changedKeys.insert(saved.item.key)
         let kind = id.thumbnail ? "Thumbnails" : "Pages"
         publish("\(kind) · gallery \(id.gallery + 1)/\(library.galleries.count) · \(id.page + 1)/\(pages.count)")
         return result
@@ -573,32 +538,5 @@ actor GalleryStore {
         let revision = thumbnail ? saved.manifest.thumbnails!.revision : saved.manifest.revision
         return root.appendingPathComponent(saved.item.key).appendingPathComponent(revision)
             .appendingPathComponent(thumbnail ? "thumbnails" : "pages").appendingPathComponent(pages[page].name)
-    }
-}
-
-enum DurableFile {
-    static func matches(_ url: URL, size: Int64) -> Bool {
-        let attrs = try? FileManager.default.attributesOfItem(atPath: url.path)
-        return (attrs?[.type] as? FileAttributeType) == .typeRegular && (attrs?[.size] as? NSNumber)?.int64Value == size
-    }
-
-    static func write(_ data: Data, to url: URL) throws {
-        try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: url, options: .atomic)
-        let handle = try FileHandle(forWritingTo: url)
-        defer { try? handle.close() }
-        try handle.synchronize()
-    }
-
-    static func commitDownload(_ source: URL, to destination: URL, expectedSize: Int64) throws {
-        guard matches(source, size: expectedSize) else { throw ReaderError.wrongSize }
-        try FileManager.default.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let handle = try FileHandle(forWritingTo: source)
-        try handle.synchronize()
-        try handle.close()
-        // POSIX rename atomically replaces an incomplete destination on this volume.
-        guard rename(source.path, destination.path) == 0 else {
-            throw NSError(domain: NSPOSIXErrorDomain, code: Int(errno))
-        }
     }
 }
