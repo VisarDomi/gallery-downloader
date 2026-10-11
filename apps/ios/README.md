@@ -89,8 +89,8 @@ see "Away from the screen" in [PAID-NATIVE.md](PAID-NATIVE.md). There is no sync
 page, vertical gallery anchor, horizontal thumbnail strips, and reader image plus
 fraction are checkpointed in the small `view-state.json`, throttled during scroll
 and flushed on navigation/backgrounding. Cold launch restores the last view. A
-restored reader is loaded after its saved library document, giving WebKit a real
-back entry. WebKit still owns in-session history, gestures, and bfcache scroll
+restored reader is loaded after its saved library document has finished its first
+screen, giving WebKit a real back entry that looks as it was left. WebKit still owns in-session history, gestures, and bfcache scroll
 restoration. Explicit thumbnail selections override a saved reader position. Personal Team signing must be renewed before
 its profile expires; updating the same app bundle preserves downloaded files.
 See [daily wireless renewal](REFRESH.md) for the Mac LaunchAgent, private

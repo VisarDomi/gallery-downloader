@@ -73,6 +73,6 @@ test('released images stop retrying; off-origin URLs retain their original query
     r.tick(1000); assert.equal(src, 'https://source.test/image?signature=fixture');
     src = ''; r.tick(1000); assert.equal(r.timers.size, 0);
     assert.equal(writes.length, 2);
-    assert.ok(app.includes('img.src = slot.url;\n        registerImage(img);'), 'Register actual displayed images');
+    assert.ok(app.includes('img.src = slot.url;\n            registerImage(img);'), 'Register actual displayed images');
     assert.ok(!app.includes('slot.retries'));
 });

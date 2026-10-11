@@ -172,20 +172,13 @@ actor GalleryStore {
         String(decoding: try JSONSerialization.data(withJSONObject: value), as: UTF8.self)
     }
 
-    func webReply(_ command: String, key: String, index: Int) async throws -> String {
+    // A gallery for the page (describe, open): its manifest and saved state.
+    func webGallery(_ key: String) async throws -> String {
         interactive += 1
         defer { interactive -= 1 }
-        let galleryIndex = try await ensureManifest(key, urgent: true)
-        let saved = library.galleries[galleryIndex]
-        if command == "describe" || command == "open" {
-            let manifest = try JSONSerialization.jsonObject(with: JSONEncoder().encode(saved.manifest))
-            return try webJSON(["manifest": manifest, "state": webState(saved, thumbnail: false)])
-        }
-        let thumbnail = command == "thumbnail"
-        let available = thumbnail ? (saved.manifest.thumbnails?.pages.count ?? 0) : saved.manifest.pages.count
-        guard index >= 0, index < available else { throw ReaderError.missingImage }
-        if thumbnail { priorityGalleries.insert(galleryIndex) }
-        return try webJSON(["url": "gallery://app/media/\(key)/\(thumbnail ? "thumbnails" : "pages")/\(index)"])
+        let saved = library.galleries[try await ensureManifest(key, urgent: true)]
+        let manifest = try JSONSerialization.jsonObject(with: JSONEncoder().encode(saved.manifest))
+        return try webJSON(["manifest": manifest, "state": webState(saved, thumbnail: false)])
     }
 
     func localResource(_ url: URL) async throws -> (data: Data, mime: String) {
@@ -204,6 +197,8 @@ actor GalleryStore {
             let thumbnail = components[2] == "thumbnails"
             guard index < (thumbnail ? (saved.manifest.thumbnails?.pages.count ?? 0) : saved.manifest.pages.count)
             else { throw ReaderError.missingImage }
+            // A gallery whose thumbnails are on screen downloads first.
+            if thumbnail { priorityGalleries.insert(galleryIndex) }
             file = try await ensureMedia(MediaID(gallery: galleryIndex, page: index, thumbnail: thumbnail), urgent: true)
         } else {
             let name = url.path == "/" || url.path.isEmpty ? "index.html" : String(url.path.dropFirst())

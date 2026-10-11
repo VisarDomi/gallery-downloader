@@ -8,6 +8,6 @@ fi
 test_dir=$(mktemp -d "${TMPDIR:-/tmp}/gallery-native-tests.XXXXXX")
 trap 'rm -rf "$test_dir"' EXIT
 xcrun swiftc -parse-as-library -strict-concurrency=complete \
-  GalleryReader/Models.swift GalleryReader/GalleryAPI.swift GalleryReader/GalleryStore.swift \
+  GalleryReader/Models.swift GalleryReader/GalleryAPI.swift GalleryReader/GalleryStore.swift GalleryReader/BackgroundDownloads.swift \
   Tests/CoreTests.swift -o "$test_dir/tests"
 "$test_dir/tests" "$@"

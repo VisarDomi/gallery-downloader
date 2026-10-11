@@ -25,7 +25,7 @@ window.nativeGallery = {
                         window.galleryViewState.receive(result.position, !!result.resumeReader);
                         update(result);
                         if (result.resumeReader) {
-                            setTimeout(() => location.assign(result.resumeReader), 0);
+                            window.galleryViewState.whenScreenComplete(1500).then(() => location.assign(result.resumeReader));
                             return;
                         }
                     }

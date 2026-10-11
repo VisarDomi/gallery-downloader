@@ -165,7 +165,7 @@ struct CoreTests {
         _ = try await cold.webSnapshot()
         let afterCatalog = await cold.loadedGalleryCount()
         try expect(afterCatalog == 0, "Rendering the full catalog does not hydrate manifests")
-        _ = try await cold.webReply("describe", key: copies[0].item.key, index: -1)
+        _ = try await cold.webGallery(copies[0].item.key)
         let afterVisible = await cold.loadedGalleryCount()
         try expect(afterVisible == 1, "Visible gallery loads independently")
         await cold.warmRemaining()

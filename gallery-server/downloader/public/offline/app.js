@@ -144,13 +144,40 @@ function restorePosition() {
     positionReady = true;
     requestAnimationFrame(() => { alignAnchor(); schedulePositionSave(); });
 }
+// The list's first screen is complete: the strips on screen are built (or failed) and their
+// on-screen thumbnails have loaded (or failed).
+function screenComplete() {
+    for (const row of rows.values()) {
+        const rect = row.getBoundingClientRect();
+        if (rect.bottom <= 0 || rect.top >= innerHeight || row.failed) continue;
+        if (!row.details) return false;
+        const strip = row.querySelector('.hs-row');
+        for (const slot of strip.children) {
+            const left = slot.offsetLeft - strip.scrollLeft;
+            if (left + slot.offsetWidth > 0 && left < strip.clientWidth && (!slot.url || slot.loading)) return false;
+        }
+    }
+    return true;
+}
 window.galleryViewState = {
     receive(position, skipSaving) {
         skipPositionSave = skipSaving;
         if (positionReady) return; // Existing bfcache document already has its exact position.
         if (position && (!readerKey || position.path === location.pathname + location.search)) savedPosition = position;
     },
-    save: savePosition
+    save: savePosition,
+    // A launch that reopens the reader opens it over a finished list (or after `limit` ms), so
+    // the first swipe back returns to the list as it was left instead of one filling in.
+    whenScreenComplete(limit) {
+        const until = performance.now() + limit;
+        return new Promise(resolve => {
+            const check = () => {
+                if (screenComplete() || performance.now() > until) requestAnimationFrame(() => requestAnimationFrame(resolve));
+                else setTimeout(check, 30);
+            };
+            check();
+        });
+    }
 };
 const positionResize = new ResizeObserver(() => {
     if (!heldAnchor) return;
@@ -182,67 +209,104 @@ function totals() {
 }
 function release(slot) {
     slot.token = (slot.token || 0) + 1; slot.loading = false;
-    if (slot.url) URL.revokeObjectURL(slot.url);
-    slot.url = undefined;
+    slot.url = undefined; slot.settle?.();
+    waitingImages.delete(slot);
     const img = slot.querySelector('img');
     if (img) { img.onload = img.onerror = null; img.removeAttribute('src'); }
 }
-// Every saved image is requested as soon as its DOM exists. WebKit owns decoding.
+// Every saved image loads, with no viewport window and nothing released offscreen (September
+// 17), the ones on screen first: a few at a time, each next one the closest to the screen (a
+// strip's own scroll included), re-ordered as scrolling moves.
+const IMAGE_LOADS = 8, IMAGE_TIMEOUT_MS = 10_000;
+const waitingImages = new Set();
+let imageQueue = [], imageQueueStale = false, imageQueueSorted = 0, imageLoads = 0, imageGeneration = 0, imagePump = false;
+function wantImage(slot) {
+    if (slot.url || slot.loading) return;
+    waitingImages.add(slot); imageQueueStale = true;
+    if (!imagePump) { imagePump = true; queueMicrotask(pumpImages); }
+}
+function pumpImages() {
+    imagePump = false;
+    while (!suspended && imageLoads < IMAGE_LOADS && waitingImages.size) {
+        if (!imageQueue.length || (imageQueueStale && performance.now() - imageQueueSorted > 100)) sortImageQueue();
+        const slot = imageQueue.pop();
+        if (!slot) break;
+        if (!waitingImages.delete(slot) || !slot.isConnected) continue;
+        const generation = imageGeneration;
+        imageLoads++;
+        void loadImage(slot).finally(() => {
+            if (generation !== imageGeneration) return;
+            imageLoads--; pumpImages();
+        });
+    }
+}
+// Farthest first, so the nearest pops; on screen is distance 0, in page order.
+function sortImageQueue() {
+    const frames = new Map(), height = innerHeight;
+    const outside = (start, end, size) => end < 0 ? -end : start > size ? start - size : 0;
+    const distance = slot => {
+        if (readerKey) { const top = slot.offsetTop - scrollY; return outside(top, top + slot.offsetHeight, height); }
+        let frame = frames.get(slot.row);
+        if (!frame) {
+            const rect = slot.row.getBoundingClientRect(), strip = slot.parentElement;
+            frame = { vertical: outside(rect.top, rect.bottom, height), left: strip.scrollLeft, width: strip.clientWidth };
+            frames.set(slot.row, frame);
+        }
+        const left = slot.offsetLeft - frame.left;
+        return frame.vertical + outside(left, left + slot.offsetWidth, frame.width);
+    };
+    imageQueue = [...waitingImages].map((slot, order) => ({ slot, order, distance: distance(slot) }))
+        .sort((a, b) => b.distance - a.distance || b.order - a.order).map(entry => entry.slot);
+    imageQueueStale = false; imageQueueSorted = performance.now();
+}
+addEventListener('scroll', () => { imageQueueStale = true; }, { passive: true, capture: true });
+addEventListener('resize', () => { imageQueueStale = true; }, { passive: true });
 function pageError(slot, text) {
     let error = slot.querySelector('.page-error');
     if (!error) { error = document.createElement('span'); error.className = 'page-error'; slot.append(error); }
     error.textContent = `Page ${slot.index + 1}: ${text}`;
 }
+// Resolves once the image has loaded or failed (or after IMAGE_TIMEOUT_MS), so the queue moves on.
+// Saved files have fixed addresses; the app reads (or first downloads) them.
 async function loadImage(slot) {
     if (slot.loading || slot.url || suspended) return;
     const token = slot.token = (slot.token || 0) + 1;
     slot.loading = true;
     const img = slot.querySelector('img');
+    slot.url = `gallery://app/media/${encodeURIComponent(readerKey || slot.key)}/${readerKey ? 'pages' : 'thumbnails'}/${slot.index}`;
     try {
-        let blob, localUrl;
-        if (readerKey) ({ blob, url: localUrl } = await call('page', { key: readerKey, index: slot.index }));
-        else {
-            try { ({ blob, url: localUrl } = await call('thumbnail', { key: slot.key, index: slot.index })); }
-            catch {
-                throw new Error('Thumbnail not saved');
-                if (!slot.source || navigator.onLine === false) throw new Error('Thumbnail not saved');
-                const response = await fetch(slot.source, { cache: 'no-store', signal: AbortSignal.timeout(15000) });
-                if (!response.ok || !response.headers.get('content-type')?.startsWith('image/')) throw new Error('Thumbnail unavailable');
-                blob = await response.blob();
-            }
-        }
-        if (token !== slot.token || suspended || !slot.isConnected) return;
-        slot.url = localUrl || URL.createObjectURL(blob);
-        img.onload = () => {
-            if (!window.bootMarks.some(mark => mark.label === 'First image loaded')) {
-                mark('First image loaded');
-                window.nativeGallery?.reportStartup(window.bootMarks);
-            }
-            if (readerKey && token === slot.token) {
-                slot.style.aspectRatio = `${img.naturalWidth}/${img.naturalHeight}`;
-                slot.querySelector('.page-error')?.remove();
-            }
-        };
-        img.onerror = () => {
-            if (token !== slot.token) return;
-            if (readerKey) pageError(slot, 'Saved image could not be decoded.');
-        };
-        img.src = slot.url;
-        registerImage(img);
-    } catch (error) {
-        if (token === slot.token && !suspended) {
-            if (readerKey) pageError(slot, error.message);
-            else img.alt = `${slot.index + 1} · ${error.message}`;
-        }
+        await new Promise(resolve => {
+            const timeout = setTimeout(resolve, IMAGE_TIMEOUT_MS);
+            slot.settle = () => { clearTimeout(timeout); slot.settle = undefined; resolve(); };
+            img.onload = () => {
+                slot.settle?.();
+                if (!window.bootMarks.some(mark => mark.label === 'First image loaded')) {
+                    mark('First image loaded');
+                    window.nativeGallery?.reportStartup(window.bootMarks);
+                }
+                if (readerKey && token === slot.token) {
+                    slot.style.aspectRatio = `${img.naturalWidth}/${img.naturalHeight}`;
+                    slot.querySelector('.page-error')?.remove();
+                }
+            };
+            img.onerror = () => {
+                slot.settle?.();
+                if (token === slot.token && readerKey) pageError(slot, 'Saved image could not be loaded.');
+            };
+            img.src = slot.url;
+            registerImage(img);
+        });
     } finally { if (token === slot.token) slot.loading = false; }
 }
+// Rows nearest the screen describe their galleries first.
 function loadImages() {
-    for (const slot of slots) void loadImage(slot);
-    for (const row of rows.values()) void populateRow(row, row.galleryItem);
+    for (const slot of slots) wantImage(slot);
+    const nearest = row => Math.abs(row.getBoundingClientRect().top + 150 - innerHeight / 2);
+    for (const row of [...rows.values()].sort((a, b) => nearest(a) - nearest(b))) void populateRow(row, row.galleryItem);
 }
 async function populateRow(row, item) {
     if (!row || row.populating || row.details) return;
-    row.populating = true;
+    row.populating = true; row.failed = false;
     try {
         const data = await call('describe', { key: item.key });
         if (!row.isConnected || suspended) return;
@@ -253,15 +317,14 @@ async function populateRow(row, item) {
             link.className = 'thumb-link'; link.href = readUrl(item.key, index);
             link.setAttribute('aria-label', `${item.title} · page ${index + 1}`);
             img.className = 'hs-thumb'; img.alt = ''; img.decoding = 'async';
-            link.key = item.key; link.index = index;
-            link.source = data.manifest.thumbnails?.pages[index]?.url;
+            link.key = item.key; link.index = index; link.row = row;
             link.append(img); strip.append(link); slots.add(link);
         });
         row.querySelector('.row-message')?.remove(); row.prepend(strip);
         if (savedPosition?.strips?.[item.key]) strip.scrollLeft = savedPosition.strips[item.key];
-        for (const slot of strip.children) void loadImage(slot);
+        for (const slot of strip.children) wantImage(slot);
     } catch (error) {
-        if (!suspended && row.isConnected) row.querySelector('.row-message').textContent = `${item.title} · ${error.message}`;
+        if (!suspended && row.isConnected) { row.failed = true; row.querySelector('.row-message').textContent = `${item.title} · ${error.message}`; }
     } finally { row.populating = false; }
 }
 function renderCatalog() {
@@ -412,9 +475,7 @@ async function start(restoring = false) {
             if (active) say(`${data.state.key.replace(':thumbs', ' thumbnails')} · ${data.state.downloaded}/${data.state.total}`);
         }
         if (data.type === 'previews-ready') {
-            for (const slot of slots) if (slot.key === data.key) {
-                if (!slot.url && !slot.loading) void loadImage(slot);
-            }
+            for (const slot of slots) if (slot.key === data.key) wantImage(slot);
         }
         if (data.type === 'download-status') { active = data.running; totals(); say(data.message); }
     };
@@ -440,9 +501,10 @@ $('download').onclick = async () => {
 window.addEventListener('pagehide', () => {
     void savePosition();
     suspended = true; worker?.terminate(); worker = undefined; active = false;
-    // Keep DOM, dimensions, blob URLs and both scroll axes for bfcache. Release
-    // IDB/write handles by terminating the worker, without blocking navigation.
-    for (const slot of slots) { slot.token = (slot.token || 0) + 1; slot.loading = false; }
+    // Keep DOM, dimensions, loaded images and both scroll axes for bfcache. Images still on their
+    // way start again from the queue on return.
+    imageGeneration++; imageLoads = 0;
+    for (const slot of slots) if (slot.loading) { release(slot); waitingImages.add(slot); }
     for (const request of pending.values()) request.reject(new Error('App suspended')); pending.clear();
 });
 window.addEventListener('pageshow', event => { if (event.persisted) requestAnimationFrame(() => requestAnimationFrame(() => start(true))); });

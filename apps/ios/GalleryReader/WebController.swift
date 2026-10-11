@@ -21,6 +21,9 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
     private var poller: Task<Void, Never>?
     private var knownGalleryCount = 0
     private let network = NWPathMonitor()
+    // Launch: covers the documents that only pass through (the saved page, then the list a
+    // reopened reader sits on) until the one that stays says it is ready.
+    private let cover = UIView()
 
 
     init() {
@@ -42,6 +45,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         config.ignoresViewportScaleLimits = true
         webView = WKWebView(frame: .zero, configuration: config)
         webView.allowsBackForwardNavigationGestures = true
+        webView.isInspectable = true
         webView.navigationDelegate = self
         webView.isOpaque = false
         webView.backgroundColor = .black
@@ -49,6 +53,9 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         webView.scrollView.contentInsetAdjustmentBehavior = .never
         view.backgroundColor = .black
         view.addSubview(webView)
+        cover.backgroundColor = .black
+        view.addSubview(cover)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) { [weak self] in self?.uncover() }
         webView.load(URLRequest(url: URL(string: "gallery://app/")!))
         listening = Task { [weak self, store] in
             for await event in store.events {
@@ -73,7 +80,11 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
             }
         }
     }
-    override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); webView.frame = view.bounds }
+    override func viewDidLayoutSubviews() { super.viewDidLayoutSubviews(); webView.frame = view.bounds; cover.frame = view.bounds }
+    private func uncover() {
+        guard cover.superview != nil, cover.alpha == 1 else { return }
+        UIView.animate(withDuration: 0.15) { self.cover.alpha = 0 } completion: { _ in self.cover.removeFromSuperview() }
+    }
     private func ensureLoaded() async throws {
         if loading == nil { loading = Task { [store] in try await store.load() } }
         try await loading?.value
@@ -164,7 +175,6 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
         }
         let args = body["args"] as? [String: Any] ?? [:]
         let key = args["key"] as? String ?? ""
-        let index = args["index"] as? Int ?? -1
         let document = args["document"] as? String ?? ""
         let requestPath = (message.frameInfo.request.url?.path ?? "/") + (message.frameInfo.request.url?.query.map { "?" + $0 } ?? "")
         Task {
@@ -202,6 +212,7 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                     try await store.saveViewPosition(data)
                     replyHandler("{}", nil)
                 case "continue":
+                    uncover()
                     documentReady = true
                     startAutomaticWork()
                     replyHandler("{}", nil)
@@ -209,8 +220,8 @@ final class WebController: UIViewController, WKNavigationDelegate, WKScriptMessa
                     let marks = try JSONSerialization.data(withJSONObject: args["marks"] as? [[String: Any]] ?? [])
                     try await store.recordStartup(marks)
                     replyHandler("{}", nil)
-                case "describe", "open", "page", "thumbnail":
-                    replyHandler(try await store.webReply(command, key: key, index: index), nil)
+                case "describe", "open":
+                    replyHandler(try await store.webGallery(key), nil)
                 default: replyHandler(nil, "Unknown native request")
                 }
             } catch { replyHandler(nil, error.localizedDescription) }

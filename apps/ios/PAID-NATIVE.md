@@ -47,9 +47,12 @@ the [environment recovery copy](/home/visar/Documents/environment/mac-renewal/RE
 ## Offline UI
 
 The app bundles `gallery-server/downloader/public/offline` (`app.js`, `style.css`,
-`index.html`) through `scripts/prepare-web.sh`. Home requests every thumbnail on
-the current page and the reader every image as soon as its DOM exists; WebKit owns
-decoding. The scroll-settle and image-retry helpers in `app.js` mirror gallery-reader's
+`index.html`) through `scripts/prepare-web.sh`. Home loads every thumbnail on the
+current page and the reader every image, with no viewport window and nothing released
+offscreen, the ones on screen first: eight at a time, each next one the closest to the
+screen (a strip's own horizontal scroll included), re-ordered as scrolling moves. Images
+load straight from their `gallery://app/media/<key>/{thumbnails,pages}/<index>` files
+(a gallery whose thumbnails are requested downloads first); WebKit owns decoding. The scroll-settle and image-retry helpers in `app.js` mirror gallery-reader's
 `src/core/{scroll-settle,image-retry}.ts`. All images and image links disable
 callouts, selection and dragging.
 
@@ -67,3 +70,8 @@ Control Center or Face ID leave downloads and the catalog untouched; only a real
 the background stops them and refreshes the catalog on return. A changed catalog keeps the
 rows it still has (and their loaded thumbnails) and the current position. Page numbers
 replace the rows in place and start at the first row, as in Hitomi and Imhen.
+
+A launch that reopens the reader opens it over a finished list: the saved list page
+renders its first screen (strips and on-screen thumbnails, at most 1.5 s) before the
+reader loads, so the first swipe back returns to the list as it was left, not one that
+fills in. A black cover hides these passing pages until the page that stays is ready.
