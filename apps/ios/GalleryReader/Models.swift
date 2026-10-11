@@ -183,7 +183,7 @@ struct ViewPosition: Codable, Sendable {
     }
     func validate() throws {
         guard Self.route(path) != nil, fraction.isFinite, (0...1).contains(fraction),
-              y.isFinite, (0...1_000_000_000).contains(y), strips.count <= 560,
+              y.isFinite, (0...1_000_000_000).contains(y), strips.count <= 20_000,
               strips.allSatisfy({ $0.key.count < 100 && $0.value.isFinite && (0...1_000_000_000).contains($0.value) }),
               page == nil || (0..<1_000_000).contains(page!), (anchor?.count ?? 0) < 100
         else { throw ReaderError.invalidCatalog }

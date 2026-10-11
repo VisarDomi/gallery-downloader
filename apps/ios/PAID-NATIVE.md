@@ -65,8 +65,7 @@ Background URLSessions need no background mode or entitlement.
 
 Control Center or Face ID leave downloads and the catalog untouched; only a real trip to
 the background stops them and refreshes the catalog on return. A changed catalog keeps the
-rows it still has (and their loaded thumbnails) and the current position. Page numbers
-replace the rows in place and start at the first row, as in Hitomi and Imhen.
+current position (the row at the screen's middle stays put).
 
 A launch that reopens the reader opens it over a finished list: the saved list page
 renders its first screen (strips and on-screen thumbnails, at most 1.5 s) before the

@@ -4,41 +4,43 @@ import KitImages
 import KitLists
 import KitNavigation
 
-// A library page: 25 favorites in catalog order, each a row with a sideways strip of every
-// page's thumbnail (100×300 covers) and an "i" button, then the page numbers, then the
-// count and the store's status line. A thumbnail opens the reader at its page; a page number
-// replaces the rows in place and starts at the first row (as in Hitomi and Imhen); "Favs"
-// opens page 1 as a new screen. The page remembers the row at the screen's middle, how far
-// down it, and every strip's sideways offset.
+// The library: every favorite in catalog order, one continuous list (the web version's 25-row
+// pages only kept WebKit's documents small), each a row with a sideways strip of every page's
+// thumbnail (100×300 covers) and an "i" button; at the end the count and the store's status
+// line. Drag the scroll indicator to jump. A thumbnail opens the reader at its page. The list
+// remembers the row at the screen's middle, how far down it, and every strip's sideways offset.
 @MainActor
-final class LibraryScreen: UIViewController, LiveScreen, UIScrollViewDelegate, GalleryRowDelegate {
+final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, UITableViewDelegate,
+                           UITableViewDataSourcePrefetching, GalleryRowDelegate {
     struct State: Codable {
         var anchor: ScrollAnchor?
         var strips: [String: Double]
     }
 
-    static let pageSize = 25
     private let app: AppController
-    private var page: Int
-    private let scrollView = UIScrollView()
-    private let pagination = PaginationBar()
+    private let table = UITableView(frame: .zero, style: .plain)
+    private let footer = UIView()
     private let countLabel = UILabel()
     private let statusLabel = UILabel()
-    private var rows: [GalleryRowView] = []
-    private var strips: [String: Double] = [:]
+    private var catalog: [GalleryItem] = []
+    private var signature: [String] = []
+    // Each gallery's page count once described (a strip has one thumbnail per page).
+    private var pages: [String: Int] = [:]
+    private var failures: [String: String] = [:]
+    private var describing = Set<String>()
+    private var strips: [String: Double]
     private var pendingAnchor: ScrollAnchor?
     private var restored = false
     private var observer: NSObjectProtocol?
-    private var rowsSignature: [String] = []
 
-    init(app: AppController, page: Int, state: Data?) {
+    // `page`: the web version's library page this screen was saved on (its place carries over).
+    init(app: AppController, page: Int = 1, state: Data?) {
         self.app = app
-        self.page = max(1, page)
-        super.init(nibName: nil, bundle: nil)
         let saved = state.flatMap { try? JSONDecoder().decode(State.self, from: $0) }
-        let position = app.position(for: .library(page: self.page))
+        let position = app.position(for: .library(page: 1)) ?? app.position(for: .library(page: page))
         pendingAnchor = saved?.anchor ?? position?.anchor.map { ScrollAnchor(key: $0, fraction: position?.fraction ?? 0) }
-        strips = saved?.strips ?? position?.strips ?? [:]
+        strips = saved?.strips ?? app.allStripOffsets()
+        super.init(nibName: nil, bundle: nil)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is unused") }
@@ -46,36 +48,39 @@ final class LibraryScreen: UIViewController, LiveScreen, UIScrollViewDelegate, G
     override var prefersStatusBarHidden: Bool { true }
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
-    var route: Data { (try? JSONEncoder().encode(Route.library(page: page))) ?? Data() }
-
-    func savedState() -> Data? { try? JSONEncoder().encode(State(anchor: currentAnchor, strips: currentStrips)) }
+    var route: Data { (try? JSONEncoder().encode(Route.library(page: 1))) ?? Data() }
+    func savedState() -> Data? { try? JSONEncoder().encode(State(anchor: currentAnchor, strips: strips)) }
 
     override func viewDidLoad() {
         super.viewDidLoad()
         view.backgroundColor = .black
-        scrollView.delegate = self
-        scrollView.backgroundColor = .black
-        scrollView.contentInsetAdjustmentBehavior = .never
-        scrollView.showsVerticalScrollIndicator = false
-        scrollView.alwaysBounceVertical = true
-        view.addSubview(scrollView)
-        pagination.onPage = { [weak self] page in self?.show(page: page) }
-        pagination.onFavorites = { [weak self] in
-            guard let self else { return }
-            saveNow()
-            liveNavigation?.open(LibraryScreen(app: app, page: 1, state: nil))
-        }
-        scrollView.addSubview(pagination)
+        table.backgroundColor = .black
+        table.separatorStyle = .none
+        table.rowHeight = GalleryRowCell.height
+        table.estimatedRowHeight = GalleryRowCell.height
+        table.contentInsetAdjustmentBehavior = .never
+        table.showsVerticalScrollIndicator = true
+        table.indicatorStyle = .white
+        table.dataSource = self
+        table.delegate = self
+        table.prefetchDataSource = self
+        table.register(GalleryRowCell.self, forCellReuseIdentifier: "row")
+        view.addSubview(table)
         for label in [countLabel, statusLabel] {
-            label.textColor = UIColor(white: 0.53, alpha: 1)
             label.numberOfLines = 0
-            scrollView.addSubview(label)
+            footer.addSubview(label)
         }
         countLabel.font = .systemFont(ofSize: 16)
+        countLabel.textColor = UIColor(white: 0.53, alpha: 1)
         statusLabel.font = .systemFont(ofSize: 14)
         statusLabel.textColor = UIColor(white: 0.67, alpha: 1)
         observer = NotificationCenter.default.addObserver(forName: .libraryChanged, object: app, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.libraryChanged() }
+        }
+        DebugState.shared.register("libraryScreen") { [weak self] in
+            guard let self else { return [:] }
+            return ["rows": catalog.count, "anchor": currentAnchor.map { ["key": $0.key, "fraction": $0.fraction] } ?? [:],
+                    "offset": table.contentOffset.y, "described": pages.count]
         }
         libraryChanged()
     }
@@ -83,117 +88,138 @@ final class LibraryScreen: UIViewController, LiveScreen, UIScrollViewDelegate, G
     override func viewDidLayoutSubviews() {
         super.viewDidLayoutSubviews()
         let anchor = restored ? currentAnchor : nil
-        scrollView.frame = view.bounds
-        layoutRows()
-        if let anchor { restore(anchor) }
+        let widthChanged = table.frame.width != view.bounds.width
+        table.frame = view.bounds
+        layoutFooter()
+        if widthChanged, let anchor { restore(anchor) }
         restoreIfReady()
     }
 
-    // MARK: rows
+    // MARK: catalog
 
-    private var items: ArraySlice<GalleryItem> {
-        let catalog = app.library.catalog
-        let pages = max(1, Int(ceil(Double(catalog.count) / Double(Self.pageSize))))
-        let current = min(page, pages)
-        return catalog[min(catalog.count, (current - 1) * Self.pageSize)..<min(catalog.count, current * Self.pageSize)]
-    }
-
-    // A later catalog keeps the rows it still has (with their loaded thumbnails) and the
-    // place on screen.
+    // A later catalog keeps the place on screen (the row at the middle stays put).
     private func libraryChanged() {
         let library = app.library
         countLabel.text = "\(library.catalog.count) Favorites"
         statusLabel.text = library.message
-        let pages = max(1, Int(ceil(Double(library.catalog.count) / Double(Self.pageSize))))
-        pagination.set(page: min(page, pages), of: pages)
-        let signature = items.map { "\($0.key)\u{1F}\($0.title)" }
-        if signature != rowsSignature {
+        layoutFooter()
+        let next = library.catalog.map { "\($0.key)\u{1F}\($0.title)" }
+        if next != signature {
             let anchor = restored ? currentAnchor : nil
-            let previous = Dictionary(rows.map { ($0.item.key, $0) }, uniquingKeysWith: { first, _ in first })
-            rows = items.map { item in
-                if let row = previous[item.key], row.item.title == item.title { row.item = item; return row }
-                let row = GalleryRowView(item: item, app: app)
-                row.delegate = self
-                return row
-            }
-            for row in previous.values where !rows.contains(where: { $0 === row }) { row.discard() }
-            rows.forEach { if $0.superview !== scrollView { scrollView.addSubview($0) } }
-            rowsSignature = signature
-            layoutRows()
+            catalog = library.catalog
+            signature = next
+            table.reloadData()
+            table.layoutIfNeeded()
             if let anchor { restore(anchor) }
-            populateRows()
+        } else {
+            // New downloads: thumbnails that were missing are asked again; failed rows retry.
+            for cell in table.visibleCells.compactMap({ $0 as? GalleryRowCell }) { cell.reloadMissing() }
+            for key in failures.keys { failures[key] = nil; describe(key) }
         }
-        rows.forEach { $0.libraryChanged() }
-        layoutRows()
         restoreIfReady()
     }
 
-    // Rows nearest the screen's middle describe their galleries first.
-    private func populateRows() {
-        let middle = scrollView.contentOffset.y + scrollView.bounds.height / 2
-        for row in rows.sorted(by: { abs($0.frame.midY - middle) < abs($1.frame.midY - middle) }) {
-            row.populate(offset: strips[row.item.key].map { CGFloat($0) })
+    private func layoutFooter() {
+        let width = view.bounds.width, insets = view.safeAreaInsets
+        let inner = width - max(4, insets.left) - max(4, insets.right)
+        let count = countLabel.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
+        let status = statusLabel.sizeThatFits(CGSize(width: inner, height: .greatestFiniteMagnitude)).height
+        countLabel.frame = CGRect(x: max(4, insets.left), y: 8, width: inner, height: max(44, count))
+        statusLabel.frame = CGRect(x: max(4, insets.left), y: countLabel.frame.maxY + 4, width: inner, height: status)
+        let height = statusLabel.frame.maxY + max(8, insets.bottom)
+        if footer.frame.size != CGSize(width: width, height: height) {
+            footer.frame = CGRect(x: 0, y: 0, width: width, height: height)
+            table.tableFooterView = footer
         }
     }
 
-    private func layoutRows() {
-        let width = view.bounds.width
-        var y: CGFloat = 0
-        for row in rows {
-            row.frame = CGRect(x: 0, y: y, width: width, height: GalleryRowView.height)
-            y += GalleryRowView.height
+    // A gallery's page count, nearest rows first (the store answers visible requests first).
+    private func describe(_ key: String) {
+        guard pages[key] == nil, !describing.contains(key) else { return }
+        describing.insert(key)
+        Task { [weak self, app] in
+            do {
+                let (manifest, _) = try await app.gallery(key)
+                guard let self else { return }
+                describing.remove(key)
+                pages[key] = manifest.pages.count
+                failures[key] = nil
+            } catch {
+                guard let self else { return }
+                describing.remove(key)
+                failures[key] = error.localizedDescription
+            }
+            self?.refreshRow(key)
         }
-        let paginationHeight = pagination.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude)).height
-        pagination.frame = CGRect(x: 0, y: y, width: width, height: paginationHeight)
-        y += paginationHeight
-        let insets = view.safeAreaInsets
-        let footerWidth = width - max(4, insets.left) - max(4, insets.right)
-        let countHeight = countLabel.sizeThatFits(CGSize(width: footerWidth, height: .greatestFiniteMagnitude)).height
-        countLabel.frame = CGRect(x: max(4, insets.left), y: y + 8, width: footerWidth, height: max(44, countHeight))
-        y = countLabel.frame.maxY
-        let statusHeight = statusLabel.sizeThatFits(CGSize(width: footerWidth, height: .greatestFiniteMagnitude)).height
-        statusLabel.frame = CGRect(x: max(4, insets.left), y: y + 4, width: footerWidth, height: statusHeight)
-        y = statusLabel.frame.maxY + max(8, insets.bottom)
-        scrollView.contentSize = CGSize(width: width, height: y)
     }
+
+    private func refreshRow(_ key: String) {
+        guard let row = catalog.firstIndex(where: { $0.key == key }),
+              let cell = table.cellForRow(at: IndexPath(row: row, section: 0)) as? GalleryRowCell else { return }
+        configure(cell, row: row)
+    }
+
+    private func configure(_ cell: GalleryRowCell, row: Int) {
+        let item = catalog[row]
+        cell.configure(item: item, pages: pages[item.key], failure: failures[item.key], offset: CGFloat(strips[item.key] ?? 0),
+                       app: app, delegate: self)
+        if pages[item.key] == nil && failures[item.key] == nil { describe(item.key) }
+    }
+
+    // MARK: table
+
+    func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { catalog.count }
+
+    func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
+        let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath) as! GalleryRowCell
+        configure(cell, row: indexPath.row)
+        return cell
+    }
+
+    func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
+        for path in indexPaths where catalog.indices.contains(path.row) { describe(catalog[path.row].key) }
+    }
+
+    func tableView(_ tableView: UITableView, didEndDisplaying cell: UITableViewCell, forRowAt indexPath: IndexPath) {
+        guard let cell = cell as? GalleryRowCell, let key = cell.item?.key, cell.isPopulated else { return }
+        strips[key] = Double(cell.stripOffset)
+    }
+
+    func tableView(_ tableView: UITableView, shouldHighlightRowAt indexPath: IndexPath) -> Bool { false }
 
     // MARK: position
 
     private var currentAnchor: ScrollAnchor? {
-        ScrollAnchoring.anchor(in: scrollView, items: rows.map { ($0.item.key, $0.frame) })
-    }
-
-    private var currentStrips: [String: Double] {
-        var result = strips
-        for row in rows where row.isPopulated { result[row.item.key] = Double(row.stripOffset) }
-        return result
+        guard let paths = table.indexPathsForVisibleRows, !paths.isEmpty else { return nil }
+        return ScrollAnchoring.anchor(in: table, items: paths.filter { catalog.indices.contains($0.row) }
+            .map { (catalog[$0.row].key, table.rectForRow(at: $0)) })
     }
 
     private func restore(_ anchor: ScrollAnchor) {
-        ScrollAnchoring.restore(anchor, in: scrollView, frame: rows.first { $0.item.key == anchor.key }?.frame)
+        guard let row = catalog.firstIndex(where: { $0.key == anchor.key }) else { return }
+        ScrollAnchoring.restore(anchor, in: table, frame: table.rectForRow(at: IndexPath(row: row, section: 0)))
     }
 
     // The saved place, once its row exists (the catalog may arrive after the screen).
     private func restoreIfReady() {
-        guard !restored, view.bounds.width > 0, !rows.isEmpty else { return }
+        guard !restored, view.bounds.width > 0, !catalog.isEmpty else { return }
         if let anchor = pendingAnchor {
-            guard rows.contains(where: { $0.item.key == anchor.key }) else {
-                if !app.library.catalog.isEmpty { restored = true; pendingAnchor = nil }
-                return
-            }
+            guard catalog.contains(where: { $0.key == anchor.key }) else { restored = true; pendingAnchor = nil; return }
+            table.layoutIfNeeded()
             restore(anchor)
         }
         pendingAnchor = nil
         restored = true
-        populateRows()
     }
 
     private func saveNow() {
         guard restored else { return }
+        for cell in table.visibleCells.compactMap({ $0 as? GalleryRowCell }) where cell.isPopulated {
+            if let key = cell.item?.key { strips[key] = Double(cell.stripOffset) }
+        }
         let anchor = currentAnchor
-        strips = currentStrips
-        app.savePosition(ViewPosition(path: Route.library(page: page).path, anchor: anchor?.key, page: nil,
-                                      fraction: anchor?.fraction ?? 0, y: Double(max(0, scrollView.contentOffset.y)),
+        app.savePosition(ViewPosition(path: Route.library(page: 1).path, anchor: anchor?.key, page: nil,
+                                      fraction: anchor?.fraction ?? 0, y: Double(max(0, table.contentOffset.y)),
                                       strips: strips))
         stateChanged()
     }
@@ -202,128 +228,110 @@ final class LibraryScreen: UIViewController, LiveScreen, UIScrollViewDelegate, G
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { saveNow() } }
     func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { saveNow() }
 
-    // A page number: the rows change in place (no new screen) and the first row is at the top.
-    private func show(page newPage: Int) {
-        page = newPage
-        rowsSignature = []
-        strips = app.position(for: .library(page: newPage))?.strips ?? [:]
-        libraryChanged()
-        scrollView.contentOffset = .zero
-        restored = true
-        saveNow()
-    }
-
     // MARK: rows' actions
 
-    func row(_ row: GalleryRowView, didSelectPage index: Int) {
+    func row(_ row: GalleryRowCell, didSelectPage index: Int) {
+        guard let item = row.item else { return }
         saveNow()
-        liveNavigation?.open(ReaderScreen(app: app, key: row.item.key, page: index + 1, state: nil))
+        liveNavigation?.open(ReaderScreen(app: app, key: item.key, page: index + 1, state: nil))
     }
 
-    func rowWantsInfo(_ row: GalleryRowView) {
-        present(InfoSheet(app: app, item: row.item, details: row.manifest), animated: true)
+    func rowWantsInfo(_ row: GalleryRowCell) {
+        guard let item = row.item else { return }
+        present(InfoSheet(app: app, item: item, details: nil), animated: true)
     }
 
-    func rowStripSettled(_ row: GalleryRowView) { saveNow() }
+    func rowStripSettled(_ row: GalleryRowCell) { saveNow() }
 }
 
 @MainActor
 protocol GalleryRowDelegate: AnyObject {
-    func row(_ row: GalleryRowView, didSelectPage index: Int)
-    func rowWantsInfo(_ row: GalleryRowView)
-    func rowStripSettled(_ row: GalleryRowView)
+    func row(_ row: GalleryRowCell, didSelectPage index: Int)
+    func rowWantsInfo(_ row: GalleryRowCell)
+    func rowStripSettled(_ row: GalleryRowCell)
 }
 
-// One favorite: its title (until the strip is ready, or with the error that stopped it),
-// the strip of thumbnails, and the "i" button at the bottom right.
+// One favorite: its title (until the strip is ready, or with the error that stopped it), the
+// strip of thumbnails, and the "i" button at the bottom right.
 @MainActor
-final class GalleryRowView: UIView, ThumbnailStripDelegate {
+final class GalleryRowCell: UITableViewCell, ThumbnailStripDelegate {
     static let height: CGFloat = 300
-    var item: GalleryItem
-    weak var delegate: GalleryRowDelegate?
-    private(set) var manifest: GalleryManifest?
-    private let app: AppController
-    private let strip: ThumbnailStripView
+    private(set) var item: GalleryItem?
+    private weak var delegate: GalleryRowDelegate?
+    private var app: AppController?
+    private var strip: ThumbnailStripView?
     private let message = UILabel()
     private let info = UIButton(type: .system)
-    private var populating: Task<Void, Never>?
-    private var failed = false
 
-    init(item: GalleryItem, app: AppController) {
-        self.item = item
-        self.app = app
-        strip = ThumbnailStripView(pipeline: app.pipeline)
-        super.init(frame: .zero)
+    override init(style: UITableViewCell.CellStyle, reuseIdentifier: String?) {
+        super.init(style: style, reuseIdentifier: reuseIdentifier)
         backgroundColor = .black
-        strip.delegate = self
-        strip.isHidden = true
-        addSubview(strip)
+        contentView.backgroundColor = .black
+        selectionStyle = .none
         message.textColor = UIColor(white: 0.53, alpha: 1)
         message.numberOfLines = 0
         message.font = .systemFont(ofSize: 16)
-        message.text = item.title
-        addSubview(message)
+        contentView.addSubview(message)
         info.setTitle("i", for: .normal)
         info.titleLabel?.font = UIFont(name: "Georgia-Italic", size: 22) ?? .italicSystemFont(ofSize: 22)
         info.tintColor = .white
-        info.accessibilityLabel = "Information: \(item.title)"
         info.addAction(UIAction { [weak self] _ in
             guard let self else { return }
             delegate?.rowWantsInfo(self)
         }, for: .touchUpInside)
-        addSubview(info)
+        contentView.addSubview(info)
     }
 
     required init?(coder: NSCoder) { fatalError("init(coder:) is unused") }
 
-    var isPopulated: Bool { manifest != nil }
-    var stripOffset: CGFloat { strip.offset }
+    var isPopulated: Bool { !(strip?.isHidden ?? true) }
+    var stripOffset: CGFloat { strip?.offset ?? 0 }
 
     override func layoutSubviews() {
         super.layoutSubviews()
-        strip.frame = CGRect(x: 0, y: 0, width: bounds.width, height: Self.height)
-        message.frame = CGRect(x: 8, y: 12, width: bounds.width - 68, height: 0)
+        strip?.frame = CGRect(x: 0, y: 0, width: contentView.bounds.width, height: Self.height)
+        message.frame = CGRect(x: 8, y: 12, width: contentView.bounds.width - 68, height: 0)
         message.sizeToFit()
-        info.frame = CGRect(x: bounds.width - 54, y: bounds.height - 54, width: 44, height: 44)
+        info.frame = CGRect(x: contentView.bounds.width - 54, y: contentView.bounds.height - 54, width: 44, height: 44)
     }
 
-    func populate(offset: CGFloat?) {
-        guard manifest == nil, populating == nil else { return }
-        failed = false
-        let key = item.key
-        populating = Task { [weak self, app] in
-            do {
-                let (manifest, _) = try await app.gallery(key)
-                guard let self else { return }
-                populating = nil
-                self.manifest = manifest
-                strip.setKeys((0..<manifest.pages.count).map { "\(key)/thumbnail/\($0)" }, offset: offset ?? 0)
-                strip.isHidden = false
-                message.isHidden = true
-            } catch {
-                guard let self else { return }
-                populating = nil
-                failed = true
-                message.text = "\(item.title) · \(error.localizedDescription)"
-                setNeedsLayout()
-            }
+    override func prepareForReuse() {
+        super.prepareForReuse()
+        strip?.cancelAll()
+    }
+
+    func configure(item: GalleryItem, pages: Int?, failure: String?, offset: CGFloat, app: AppController, delegate: GalleryRowDelegate) {
+        let sameGallery = self.item?.key == item.key
+        self.item = item
+        self.app = app
+        self.delegate = delegate
+        info.accessibilityLabel = "Information: \(item.title)"
+        if strip == nil {
+            let strip = ThumbnailStripView(pipeline: app.pipeline)
+            strip.delegate = self
+            contentView.insertSubview(strip, at: 0)
+            self.strip = strip
         }
+        guard let strip else { return }
+        if let pages {
+            message.isHidden = true
+            if !(sameGallery && strip.keys.count == pages && !strip.isHidden) {
+                strip.setKeys((0..<pages).map { "\(item.key)/thumbnail/\($0)" }, offset: offset)
+            }
+            strip.isHidden = false
+        } else {
+            strip.isHidden = true
+            strip.setKeys([])
+            message.isHidden = false
+            message.text = failure.map { "\(item.title) · \($0)" } ?? item.title
+        }
+        setNeedsLayout()
     }
 
-    // New downloads: thumbnails that were missing are asked again; a failed row tries again.
-    func libraryChanged() {
-        if manifest != nil { strip.reloadMissing() }
-        else if failed { populate(offset: nil) }
-    }
-
-    func discard() {
-        populating?.cancel()
-        strip.cancelAll()
-        removeFromSuperview()
-    }
+    func reloadMissing() { strip?.reloadMissing() }
 
     func strip(_ strip: ThumbnailStripView, sourceFor index: Int) -> ImageSource {
-        let key = item.key, app = app
+        guard let key = item?.key, let app else { return .load { throw CancellationError() } }
         return .load { try await app.mediaFile(key, index: index, thumbnail: true) }
     }
 

@@ -10,10 +10,10 @@ There is no separate import or download step.
 The app is native UIKit (no WebKit), built on NativeKit (`apps/ios/Kit`, vendored from
 ios-tools `native/Kit`; see its PLAN.md):
 
-- **Library**: 25 galleries per page, each a row with a sideways strip of every page's
-  thumbnail (100×300 covers) and an "i" button for the gallery's details; below them the
-  page numbers, the favorites count and the status line. A page number replaces the rows in
-  place and starts at the first row; "Favs" opens page 1 as a new screen.
+- **Library**: every favorite in one continuous list (the web version's 25-row pages only
+  kept WebKit's documents small), each a row with a sideways strip of every page's thumbnail
+  (100×300 covers) and an "i" button for the gallery's details; at the end the favorites
+  count and the status line. Drag the scroll indicator to jump through the list.
 - **Reader**: the pages full width with no gaps on black, half a screen above the first and
   below the last, pinch-zoomed and panned like a Safari page (double tap zooms in or out).
   Opened from a thumbnail, that page's top sits at the screen's middle.
@@ -21,8 +21,9 @@ ios-tools `native/Kit`; see its PLAN.md):
   The left edge goes back, the right edge goes forward to the screen last left; a zoomed page
   pans to the left edge instead. The whole stack is saved (`navigation.json`) and rebuilt
   after a relaunch.
-- **Positions**: each library page remembers the row at the screen's middle, how far down
-  that row, and every strip's sideways offset; each gallery remembers its page and how far
+- **Positions**: the library remembers the row at the screen's middle, how far down that
+  row, and every strip's sideways offset (the first native launch carries over the place
+  saved on the web version's last page); each gallery remembers its page and how far
   down it (`view-state.json`, the same file and format as before). Opening a different page
   from a thumbnail wins over a saved reader position.
 - **Images** decode at display size off the main thread, the ones nearest the screen first

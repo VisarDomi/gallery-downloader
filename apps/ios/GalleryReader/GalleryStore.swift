@@ -245,7 +245,7 @@ actor GalleryStore {
     }
 
     func saveViewPosition(_ data: Data) throws {
-        guard data.count < 100_000 else { throw ReaderError.invalidCatalog }
+        guard data.count < 2_000_000 else { throw ReaderError.invalidCatalog }
         let position = try JSONDecoder().decode(ViewPosition.self, from: data)
         try position.validate()
         var state = viewState()

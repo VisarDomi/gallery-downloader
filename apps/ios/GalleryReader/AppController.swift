@@ -96,6 +96,15 @@ final class AppController {
 
     func position(for route: Route) -> ViewPosition? { positions[route.stateKey] }
 
+    // Every strip offset any library position saved (the web version kept a set per page;
+    // the continuous list keeps one).
+    func allStripOffsets() -> [String: Double] {
+        var result: [String: Double] = [:]
+        for (key, position) in positions where key.hasPrefix("library:") && key != "library:1" { result.merge(position.strips) { $1 } }
+        result.merge(positions["library:1"]?.strips ?? [:]) { $1 }
+        return result
+    }
+
     func savePosition(_ position: ViewPosition) {
         guard let route = ViewPosition.route(position.path) else { return }
         positions[route] = position
