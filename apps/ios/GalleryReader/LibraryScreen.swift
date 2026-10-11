@@ -202,7 +202,8 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
 
     // The saved place, once its row exists (the catalog may arrive after the screen).
     private func restoreIfReady() {
-        guard !restored, view.bounds.width > 0, !catalog.isEmpty else { return }
+        // Only once the table has its frame (a restore before layout lands too low).
+        guard !restored, table.bounds.height > 0, !catalog.isEmpty else { return }
         if let anchor = pendingAnchor {
             guard catalog.contains(where: { $0.key == anchor.key }) else { restored = true; pendingAnchor = nil; return }
             table.layoutIfNeeded()
