@@ -532,6 +532,25 @@ actor GalleryStore {
         return result
     }
 
+    // The phone's files read on the calling thread, for a relaunch's first frame (the store
+    // itself opens in the background): the catalog, a gallery's manifest, a saved file.
+    nonisolated func catalogNow() -> [GalleryItem]? {
+        if let items = try? JSONDecoder().decode([GalleryItem].self, from: Data(contentsOf: root.appendingPathComponent("catalog.json"))) { return items }
+        return (try? JSONDecoder().decode([GalleryHeader].self, from: Data(contentsOf: root.appendingPathComponent("index.json"))))?.map(\.item)
+    }
+
+    nonisolated func manifestNow(_ key: String) -> GalleryManifest? {
+        try? JSONDecoder().decode(GalleryManifest.self, from: Data(contentsOf: root.appendingPathComponent("manifests").appendingPathComponent(key + ".json")))
+    }
+
+    nonisolated static func savedFile(root: URL, manifest: GalleryManifest, page: Int, thumbnail: Bool) -> URL? {
+        let pages = thumbnail ? manifest.thumbnails?.pages : manifest.pages
+        guard let pages, pages.indices.contains(page), let revision = thumbnail ? manifest.thumbnails?.revision : manifest.revision else { return nil }
+        let file = root.appendingPathComponent(manifest.key).appendingPathComponent(revision)
+            .appendingPathComponent(thumbnail ? "thumbnails" : "pages").appendingPathComponent(pages[page].name)
+        return DurableFile.matches(file, size: pages[page].size) ? file : nil
+    }
+
     nonisolated static func file(root: URL, saved: SavedGallery, page: Int, thumbnail: Bool) -> URL? {
         let pages = thumbnail ? saved.manifest.thumbnails?.pages : saved.manifest.pages
         guard let pages, pages.indices.contains(page) else { return nil }

@@ -51,7 +51,11 @@ closest first (a strip's own sideways scroll included), decoded at display size 
 thread with a bounded memory cache; a file not saved yet downloads ahead of the background
 work (a gallery whose thumbnails are requested downloads first). Screens stay alive in the
 navigation stack, which is saved with each screen's position and rebuilt at launch; the first
-native launch builds it from the web version's `view-state.json`.
+native launch builds it from the web version's `view-state.json`. The first frame after a
+relaunch is the screen as it was left: the saved catalog, each gallery's manifest and the
+thumbnails and pages on the phone are read before it, while the store opens in the background
+(its empty library until then is not shown), and the screens below are built while the top one
+shows. NativeKit's `scripts/restore-check` (coded) and `restore-video.sh` (visual) measure it.
 
 ## Away from the screen
 

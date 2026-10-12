@@ -46,6 +46,8 @@ final class AppController {
     }
 
     func makeNavigation() -> LiveNavigationController {
+        // The screens come back as they were left, their images on the phone in the first frame.
+        pipeline.beginRestore()
         let file = store.root.appendingPathComponent("navigation.json")
         migrateViewState(to: file)
         navigation = LiveNavigationController(file: file, factory: { [unowned self] route, state in screen(route, state: state) },
@@ -149,6 +151,27 @@ final class AppController {
         }
     }
 
+    // MARK: the phone's files at once (a relaunch's first frame; the store opens meanwhile)
+
+    // The store has answered at least once (until then the screens show the saved catalog).
+    private(set) var libraryLoaded = false
+
+    private var manifests: [String: GalleryManifest] = [:]
+
+    func catalogNow() -> [GalleryItem]? { store.catalogNow() }
+
+    func manifestNow(_ key: String) -> GalleryManifest? {
+        if let known = manifests[key] { return known }
+        let manifest = store.manifestNow(key)
+        if manifests.count > 200 { manifests.removeAll() }
+        manifests[key] = manifest
+        return manifest
+    }
+
+    func savedFile(_ key: String, index: Int, thumbnail: Bool) -> URL? {
+        manifestNow(key).flatMap { GalleryStore.savedFile(root: store.root, manifest: $0, page: index, thumbnail: thumbnail) }
+    }
+
     // The store's answers, once it has opened (a screen rebuilt at launch asks right away).
     func gallery(_ key: String) async throws -> (manifest: GalleryManifest, state: DownloadState) {
         try await ensureLoaded()
@@ -167,6 +190,7 @@ final class AppController {
 
     private func refreshLibrary() async {
         library = await store.libraryState()
+        libraryLoaded = true
         NotificationCenter.default.post(name: .libraryChanged, object: self)
     }
 

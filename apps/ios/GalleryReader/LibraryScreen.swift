@@ -82,6 +82,13 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
             return ["rows": catalog.count, "anchor": currentAnchor.map { ["key": $0.key, "fraction": $0.fraction] } ?? [:],
                     "offset": table.contentOffset.y, "described": pages.count]
         }
+        // The saved catalog at once (the first frame lists it); the store's own follows.
+        if app.library.catalog.isEmpty, let saved = app.catalogNow() {
+            catalog = saved
+            signature = saved.map { "\($0.key)\u{1F}\($0.title)" }
+            countLabel.text = "\(saved.count) Favorites"
+            table.reloadData()
+        }
         libraryChanged()
     }
 
@@ -100,17 +107,21 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
     // A later catalog keeps the place on screen (the row at the middle stays put).
     private func libraryChanged() {
         let library = app.library
-        countLabel.text = "\(library.catalog.count) Favorites"
+        if !library.catalog.isEmpty || catalog.isEmpty { countLabel.text = "\(library.catalog.count) Favorites" }
         statusLabel.text = library.message
         layoutFooter()
         let next = library.catalog.map { "\($0.key)\u{1F}\($0.title)" }
-        if next != signature {
+        // Until the store has opened, its empty library is not news: the saved catalog stays.
+        if next != signature && (app.libraryLoaded || catalog.isEmpty) {
             let anchor = restored ? currentAnchor : nil
             catalog = library.catalog
             signature = next
             table.reloadData()
-            table.layoutIfNeeded()
-            if let anchor { restore(anchor) }
+            // Before the first restore, no layout at the top: the rows are built at the anchor.
+            if let anchor {
+                table.layoutIfNeeded()
+                restore(anchor)
+            }
         } else {
             // New downloads: thumbnails that were missing are asked again; failed rows retry.
             for cell in table.visibleCells.compactMap({ $0 as? GalleryRowCell }) { cell.reloadMissing() }
@@ -161,6 +172,9 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
 
     private func configure(_ cell: GalleryRowCell, row: Int) {
         let item = catalog[row]
+        // The page count from the saved manifest at once (the row's strip, not its title, in the
+        // first frame).
+        if pages[item.key] == nil, let manifest = app.manifestNow(item.key) { pages[item.key] = manifest.pages.count }
         cell.configure(item: item, pages: pages[item.key], failure: failures[item.key], offset: CGFloat(strips[item.key] ?? 0),
                        app: app, delegate: self)
         if pages[item.key] == nil && failures[item.key] == nil { describe(item.key) }
@@ -206,7 +220,6 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         guard !restored, table.bounds.height > 0, !catalog.isEmpty else { return }
         if let anchor = pendingAnchor {
             guard catalog.contains(where: { $0.key == anchor.key }) else { restored = true; pendingAnchor = nil; return }
-            table.layoutIfNeeded()
             restore(anchor)
         }
         pendingAnchor = nil
@@ -334,6 +347,11 @@ final class GalleryRowCell: UITableViewCell, ThumbnailStripDelegate {
     func strip(_ strip: ThumbnailStripView, sourceFor index: Int) -> ImageSource {
         guard let key = item?.key, let app else { return .load { throw CancellationError() } }
         return .load { try await app.mediaFile(key, index: index, thumbnail: true) }
+    }
+
+    func strip(_ strip: ThumbnailStripView, localFileFor index: Int) -> URL? {
+        guard let key = item?.key, let app else { return nil }
+        return app.savedFile(key, index: index, thumbnail: true)
     }
 
     func strip(_ strip: ThumbnailStripView, didSelect index: Int) { delegate?.row(self, didSelectPage: index) }

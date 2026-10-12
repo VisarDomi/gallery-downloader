@@ -71,23 +71,32 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     private func open() {
+        // The saved manifest at once: a relaunch shows the pages (and how many are saved) in its
+        // first frame; the store's answer follows.
+        if let manifest = app.manifestNow(key) {
+            show(manifest)
+            show(downloaded: manifest.pages.indices.filter { app.savedFile(key, index: $0, thumbnail: false) != nil }.count)
+        }
         Task { [weak self, app, key] in
             do {
                 let (manifest, state) = try await app.gallery(key)
                 guard let self else { return }
-                total = manifest.pages.count
-                let pages = manifest.pages.enumerated().map { index, page in
-                    StripPage(key: "\(key)/page/\(index)",
-                              aspect: (page.width ?? 0) > 0 && (page.height ?? 0) > 0 ? CGFloat(page.width! / page.height!) : nil)
-                }
-                let position = StripPosition(index: min(max(0, initial.index), max(0, pages.count - 1)), fraction: initial.fraction)
-                strip.setPages(pages, position: position)
+                if total == 0 { show(manifest) }
                 show(downloaded: state.downloaded)
             } catch {
                 self?.message.text = error.localizedDescription
                 self?.view.setNeedsLayout()
             }
         }
+    }
+
+    private func show(_ manifest: GalleryManifest) {
+        total = manifest.pages.count
+        let pages = manifest.pages.enumerated().map { index, page in
+            StripPage(key: "\(key)/page/\(index)",
+                      aspect: (page.width ?? 0) > 0 && (page.height ?? 0) > 0 ? CGFloat(page.width! / page.height!) : nil)
+        }
+        strip.setPages(pages, position: StripPosition(index: min(max(0, initial.index), max(0, pages.count - 1)), fraction: initial.fraction))
     }
 
     private func updateMessage() {
@@ -107,6 +116,8 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         let key = key, app = app
         return .load { try await app.mediaFile(key, index: index, thumbnail: false) }
     }
+
+    func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL? { app.savedFile(key, index: index, thumbnail: false) }
 
     func strip(_ strip: StripReaderView, settledAt position: StripPosition) {
         page = position.index + 1
