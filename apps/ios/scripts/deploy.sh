@@ -50,7 +50,9 @@ assert p[\"TeamIdentifier\"] == [\"65U58U86DD\"], p[\"TeamIdentifier\"]
 assert \"'"$PHONE"'\" in p[\"ProvisionedDevices\"], \"phone not in the profile\"
 assert p[\"ExpirationDate\"] > datetime.datetime.utcnow() + datetime.timedelta(days=45), p[\"ExpirationDate\"]
 print(\"Verified team, phone and expiry:\", p[\"ExpirationDate\"])"
-xcrun devicectl device install app --device '"$PHONE"' "$APP" | grep -E "bundleID|installed" | head -2
+# phone-install (ios-tools): devicectl when the Mac reaches the phone, else an over-the-air link
+# on the tailnet (exit 10: installed once the owner taps Install on the phone).
+/Users/visar/Developer/ios-tools/native/scripts/phone-install --device '"$PHONE"' "$APP" || test $? -eq 10
 $DELIVER installed $APPARGS'
 }
 
