@@ -1,25 +1,43 @@
-## agent notes
+# PC pipeline
+
+`gallery-reader` provider favorites → HTTPS downloader on this PC → local images →
+Gallery Reader on the phone ([apps/ios/README.md](apps/ios/README.md)).
 
 The runtime is deliberately small:
 
-- `gallery-sources`: Hitomi/IMHentai download descriptors
-- `gallery-server/downloader`: HTTPS favorites API, durable queue, acquisition, manual reconcile, and the `/offline-api` the Gallery Reader app reads
-- `apps/ios`: the native Gallery Reader app (UIKit on NativeKit, vendored as `apps/ios/Kit`)
-- `gallery-server/scripts`: favorites command wrappers
-- `systemd/user`: downloader and Gallery Xvfb `:112` units
+- `gallery-sources`: Hitomi/IMHentai download descriptors.
+- `gallery-server/downloader`: the HTTPS server on port `7777`. It holds the favorites API,
+  the durable queue, acquisition, manual reconcile, the queue UI at `/downloader`, `/status`,
+  and the `/offline-api` the Gallery Reader app reads (`catalog`,
+  `<provider>/<id>/manifest`, `pages/<name>`, `thumbnails/<name>`).
+- `gallery-server/scripts/favorites-command.mjs`: the sync and reconcile wrappers.
+- `gallery-server/favorites/` (gitignored): durable favorites snapshots.
+- `gallery-server/gallery-dl/` (gitignored): the local gallery-dl checkout (its own Git
+  repository and `.venv`) used for Hitomi.
+- `systemd/user`: `gallery-downloader.service` and `gallery-xvfb.service` (display `:112`).
+  The installed copies in `~/.config/systemd/user/` are the same files. The service runs
+  `~/.local/bin/gallery-downloader`, which starts `gallery-server/downloader/dist/main.js`.
 
-Ports:
+Addresses and files:
 
-- `7777`: HTTPS queue UI at `/downloader`, favorites API, `/offline-api` and status
+- Queue controls: https://192.168.1.197:7777/downloader
+- Originals and thumbnails: `/home/visar/Pictures/gallery-dl/<provider>/<id>/`.
+- TLS: mkcert's `~/.local/share/mkcert/pwa/{cert,key}.pem`, signed by
+  `~/.local/share/mkcert/rootCA.pem`. The phone app trusts only the public root
+  (see [apps/ios/README.md](apps/ios/README.md)). Never copy or commit the keys.
 
-Operational rules:
+## Commands
 
-- `gallery-reader` (Hitomi and Imhen apps) owns provider-local favorite intent.
-- Ordinary sync is non-destructive; only `npm run reconcile:favorites` deletes completed galleries.
-- Preserve atomic checkpoint and completion ordering when modifying queue or storage code.
-- IMHentai Chromium must always close in `finally` and use the dedicated `:112` profile/display.
-- Protect Chromium BrowserMetrics (`~/.config/chromium-gallery/BrowserMetrics`) with mode `0500` before each launch; it once filled 60 GiB with diagnostic files. Do not reintroduce unbounded job retries; failed state/cooldowns must survive restart and favorites sync.
-- Source thumbnails only: Hitomi gallery-dl; IMHentai's own thumbnail URL pattern, independent of original extensions. No generated substitutes.
+```bash
+npm run build
+npm test
+npm run status:all
+npm run restart                  # builds first: the service runs dist/
+npm run logs
+npm run sync:favorites           # Hitomi; `npm run sync:favorites -- imhentai` for IMHentai
+npm run reconcile:favorites      # same provider argument
+DISPLAY=:112 npm run download:imhentai -- <gallery ID or URL>   # one gallery, outside the queue
+```
 
 Start diagnosis with:
 
@@ -28,31 +46,33 @@ npm run status:all
 journalctl --user -u gallery-downloader.service -n 300 --no-pager
 ```
 
-# setup
+`peek 112` (an alias for `/home/visar/Documents/environment/shell/peek.sh`) shows the
+headful Chromium session.
 
-`gallery-reader` provider favorites → HTTPS downloader → local images → Gallery Reader app.
+## Boundaries and rules
 
-- PC queue controls: https://192.168.1.197:7777/downloader
-- iPhone app: [apps/ios/README.md](apps/ios/README.md)
-- Boundaries: [decisions.md](decisions.md)
-
-# Operations
-
-The downloader persists favorites snapshots in `gallery-server/favorites/`, schedules missing galleries, and serves the app's API on trusted HTTPS port 7777. Original files live in `/home/visar/Pictures/gallery-dl/<provider>/<id>/`.
-
-```bash
-npm run build
-npm test
-npm run status:all
-npm run restart
-npm run logs
-npm run sync:favorites
-npm run reconcile:favorites
-```
-
-Normal favorites sync does not delete saved galleries. Manual reconcile removes unwanted completed galleries and corresponding Hitomi archive entries; active downloads are skipped. Do not run reconcile just to repair a failed download.
-
-Services: `gallery-downloader.service` and dedicated `gallery-xvfb.service` on display `:112`. `peek 112` exposes the headful Chromium session; the browser must close in `finally`. Originals and thumbnails must come from the source, with no locally generated substitute images.
+- `gallery-reader` (the Hitomi and Imhen apps) owns provider-local favorite intent. The
+  downloader keeps snapshots of it. No artist/query discovery, OCR, or automatic deletion.
+- Ordinary sync is non-destructive: it does not delete saved galleries. Only
+  `npm run reconcile:favorites` removes unwanted completed galleries and the corresponding
+  Hitomi archive entries; active downloads are skipped. Do not run reconcile just to repair
+  a failed download.
+- Local provider files are the authoritative downloaded content. The iPhone app owns its
+  own offline copy on the phone.
+- Preserve existing gallery identities and original revisions when adding thumbnails (the
+  phone keeps files per revision).
+- Durable writes flush content before publishing completion. Preserve atomic checkpoint and
+  completion ordering when modifying queue or storage code.
+- IMHentai Chromium must always close in `finally` and use the dedicated `:112`
+  display and profile (`~/.config/chromium-gallery`).
+- Protect Chromium BrowserMetrics (`~/.config/chromium-gallery/BrowserMetrics`) with mode
+  `0500` before each launch; it once filled 60 GiB with diagnostic files.
+- Do not reintroduce unbounded job retries. Failed state and cooldowns must survive restart
+  and favorites sync.
+- Thumbnails come only from the source: Hitomi through gallery-dl, IMHentai through its own
+  thumbnail URL pattern. Do not resize originals, generate substitutes or add
+  image-generation dependencies. Repair missing thumbnails independently of saved originals.
+- No CBZ publishing, separate comic server, or external reader app is part of the runtime.
 
 ## Retries and failed jobs
 
