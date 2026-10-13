@@ -160,8 +160,11 @@ final class AppController {
 
     func catalogNow() -> [GalleryItem]? { store.catalogNow() }
 
+    // Read from disk only while relaunching (the first frame needs it); otherwise only one
+    // already in memory, as screens ask the store in the background.
     func manifestNow(_ key: String) -> GalleryManifest? {
         if let known = manifests[key] { return known }
+        guard pipeline.isRestoring else { return nil }
         let manifest = store.manifestNow(key)
         if manifests.count > 200 { manifests.removeAll() }
         manifests[key] = manifest

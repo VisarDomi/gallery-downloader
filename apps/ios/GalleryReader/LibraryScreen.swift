@@ -32,6 +32,8 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
     private var pendingAnchor: ScrollAnchor?
     private var restored = false
     private var observer: NSObjectProtocol?
+    private var catalogWaiting = false
+    private var rowsMoving: Bool { table.isTracking || table.isDragging || table.isDecelerating }
 
     // `page`: the web version's library page this screen was saved on (its place carries over).
     init(app: AppController, page: Int = 1, state: Data?) {
@@ -111,6 +113,13 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         statusLabel.text = library.message
         layoutFooter()
         let next = library.catalog.map { "\($0.key)\u{1F}\($0.title)" }
+        // A newer catalog keeps the rows on screen in place, which sets the offset and would stop a
+        // fling dead: it waits while a finger or momentum moves the rows.
+        if next != signature && restored && rowsMoving {
+            if !catalogWaiting { catalogWaiting = true; applyWhenStill() }
+            return
+        }
+        catalogWaiting = false
         // Until the store has opened, its empty library is not news: the saved catalog stays.
         if next != signature && (app.libraryLoaded || catalog.isEmpty) {
             let anchor = restored ? currentAnchor : nil
@@ -172,8 +181,8 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
 
     private func configure(_ cell: GalleryRowCell, row: Int) {
         let item = catalog[row]
-        // The page count from the saved manifest at once (the row's strip, not its title, in the
-        // first frame).
+        // The page count from the saved manifest at once while relaunching (the row's strip, not
+        // its title, in the first frame); otherwise from the store in the background (describe).
         if pages[item.key] == nil, let manifest = app.manifestNow(item.key) { pages[item.key] = manifest.pages.count }
         cell.configure(item: item, pages: pages[item.key], failure: failures[item.key], offset: CGFloat(strips[item.key] ?? 0),
                        app: app, delegate: self)
@@ -185,9 +194,11 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
     func tableView(_ tableView: UITableView, numberOfRowsInSection section: Int) -> Int { catalog.count }
 
     func tableView(_ tableView: UITableView, cellForRowAt indexPath: IndexPath) -> UITableViewCell {
-        let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath) as! GalleryRowCell
-        configure(cell, row: indexPath.row)
-        return cell
+        FrameMonitor.shared.measure("library.cell") {
+            let cell = tableView.dequeueReusableCell(withIdentifier: "row", for: indexPath) as! GalleryRowCell
+            configure(cell, row: indexPath.row)
+            return cell
+        }
     }
 
     func tableView(_ tableView: UITableView, prefetchRowsAt indexPaths: [IndexPath]) {
@@ -239,8 +250,26 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { app.pipeline.prioritiesChanged() }
-    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) { if !decelerate { saveNow() } }
-    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { saveNow() }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { monitor(true) }
+    func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+        if !decelerate { monitor(false); saveNow(); if catalogWaiting { libraryChanged() } }
+    }
+    func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) { monitor(false); saveNow(); if catalogWaiting { libraryChanged() } }
+
+    private var monitoring = false
+    private func monitor(_ moving: Bool) {
+        guard moving != monitoring else { return }
+        monitoring = moving
+        FrameMonitor.shared.scrolling(moving)
+    }
+
+    // Also when the rows stop without a scroll's end (a tap stops a fling).
+    private func applyWhenStill() {
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self, catalogWaiting else { return }
+            if rowsMoving { applyWhenStill() } else { libraryChanged() }
+        }
+    }
 
     // MARK: rows' actions
 
