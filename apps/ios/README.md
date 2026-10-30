@@ -25,6 +25,8 @@ The owner relies on all of this.
   Opened from a thumbnail, that page's top sits at the screen's middle. Page heights come
   from the manifest's sizes before the images load (2:3 until known), so resuming never
   jumps. "n/total pages saved" shows until the gallery is complete.
+  Pinching keeps the current strip geometry and image slices; sharper images and incoming
+  size corrections apply after the gesture, with the page anchor preserved.
 - **Navigation**: screens stay alive under the reader, so going back is instant and exact.
   The left edge goes back, the right edge goes forward to the screen last left; a zoomed page
   pans to the left edge instead. The whole stack is saved and rebuilt after a relaunch.
@@ -208,7 +210,8 @@ $S/sim launch com.visar.GalleryReader            # add -downloads to save everyt
 $S/sim hook /state                               # also /tap, /scroll, /back, /forward, /zoom, /layout
 $S/sim shot /tmp/gallery.png
 $S/restore-check com.visar.GalleryReader         # relaunch exactness; --warm for background and back
-ssh mac 'xcrun simctl shutdown all'
+# Run these checks inside mac-workload simulator with an explicit owned guest UUID;
+# the guard shuts down that guest and closes its Simulator GUI afterward.
 ```
 
 ### Tests
