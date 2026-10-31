@@ -14,3 +14,9 @@ The coding agent owns this repository: any file may be changed, including this o
 5. [Mac and phone access](../../../environment/mac-access.md): `ssh mac`, UDIDs, signing.
 6. [Renewal](../../ios-tools/renewal/README.md): the monthly re-signing. Files listed as
    renewal inputs in `apps/ios/scripts/renewal.py` must not be left changed without a deploy.
+
+The viewer follows the user directly: free continuous scrolling, content loading in place,
+and pinch zoom of the same content. Never add snapping, automatic centering, page landing,
+runways or repositioning when scrolling stops. Loading, refreshes and player reuse preserve
+the visible position. Cached next chapters must append during continuous scrolling; do not
+require a scroll-end or settled-page check. Explicit navigation and restoration are separate.
