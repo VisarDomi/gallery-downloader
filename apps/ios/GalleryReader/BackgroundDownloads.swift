@@ -52,7 +52,10 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
             let ticket = state.handOff()
             let tasks = await session.allTasks
             guard state.ownsHandoff(ticket) else { return }
-            var running = Set(tasks.compactMap { $0.taskDescription.flatMap(BackgroundDownloads.decode)?.file })
+            // Reclaimed tasks remain in allTasks briefly while cancelling.
+            // They must not suppress the replacement handoff for the same file.
+            var running = Set(tasks.filter { $0.state == .running || $0.state == .suspended }
+                .compactMap { $0.taskDescription.flatMap(BackgroundDownloads.decode)?.file })
             for item in items where running.insert(item.file).inserted {
                 guard item.path.hasPrefix("/offline-api/"), !item.path.contains(".."),
                       !item.file.hasPrefix("/"), !item.file.split(separator: "/").contains(".."),
