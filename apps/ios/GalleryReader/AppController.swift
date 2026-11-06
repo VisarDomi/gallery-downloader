@@ -24,14 +24,15 @@ final class AppController {
     // Positions by view-state key, mirrored from view-state.json (the store writes it).
     private(set) var positions: [String: ViewPosition] = [:]
 
-    private var loading: Task<Void, Error>?
     private var operation: Task<Void, Never>?
     private var syncing: Task<Void, Never>?
     private var warming: Task<Void, Never>?
     private var poller: Task<Void, Never>?
     private var listening: Task<Void, Never>?
     private var foreground = true
-    private var ready = false
+    private var transferOwnership = TransferOwnership()
+    private enum Startup { case waiting, opening, ready }
+    private var startup = Startup.waiting
     private var knownGalleryCount = 0
     private let network = NWPathMonitor()
     private let launched = CACurrentMediaTime()
@@ -130,14 +131,7 @@ final class AppController {
                 }
             }
         }
-        Task {
-            do { try await ensureLoaded() } catch { Log.store.error("Library did not open: \(error.localizedDescription, privacy: .public)") }
-            knownGalleryCount = await store.galleryCount()
-            await refreshLibrary()
-            ready = true
-            try? await store.recordStartup(["native_ui_ready_ms": (CACurrentMediaTime() - launched) * 1000])
-            startAutomaticWork()
-        }
+        startAutomaticWork()
         network.pathUpdateHandler = { [weak self] path in
             guard path.status == .satisfied else { return }
             Task { @MainActor in self?.startAutomaticWork() }
@@ -187,8 +181,7 @@ final class AppController {
     }
 
     func ensureLoaded() async throws {
-        if loading == nil { loading = Task { [store] in try await store.load() } }
-        try await loading?.value
+        try await store.load()
     }
 
     private func refreshLibrary() async {
@@ -198,7 +191,26 @@ final class AppController {
     }
 
     private func startAutomaticWork() {
-        guard foreground, ready else { return }
+        guard foreground else { return }
+        guard startup == .ready else {
+            guard startup == .waiting else { return }
+            startup = .opening
+            Task { [weak self] in
+                guard let self else { return }
+                do {
+                    try await ensureLoaded()
+                    knownGalleryCount = await store.galleryCount()
+                    await refreshLibrary()
+                    startup = .ready
+                    try? await store.recordStartup(["native_ui_ready_ms": (CACurrentMediaTime() - launched) * 1000])
+                    startAutomaticWork()
+                } catch {
+                    startup = .waiting
+                    Log.store.error("Library did not open: \(error.localizedDescription, privacy: .public)")
+                }
+            }
+            return
+        }
         if syncing == nil {
             syncing = Task { [weak self, store] in
                 do {
@@ -232,7 +244,7 @@ final class AppController {
     }
 
     private func runDownload() {
-        guard foreground, ready, knownGalleryCount > 0, operation == nil, downloadsAllowed else { return }
+        guard foreground, startup == .ready, knownGalleryCount > 0, operation == nil, downloadsAllowed else { return }
         operation = Task { [weak self, store] in
             guard let self else { return }
             do {
@@ -255,10 +267,14 @@ final class AppController {
             navigation.flush()
             DebugState.shared.write(to: store.root)
             guard downloadsAllowed else { return }
+            let ticket = transferOwnership.handOff()
             let task = UIApplication.shared.beginBackgroundTask(withName: "Hand off downloads")
-            Task { [store, background] in
-                await background.handOff(await store.backgroundWork())
-                UIApplication.shared.endBackgroundTask(task)
+            Task { [self, store, background] in
+                defer { UIApplication.shared.endBackgroundTask(task) }
+                let items = await store.backgroundWork()
+                guard transferOwnership.ownsHandoff(ticket) else { return }
+                await background.handOff(items)
+                transferOwnership.handedOff(ticket)
             }
         }
         lifecycle.onBackground { [weak self] in
@@ -274,10 +290,15 @@ final class AppController {
         // background stopped them; Control Center or Face ID leave everything running.
         lifecycle.onActive { [weak self] afterBackground in
             guard let self else { return }
-            Task { [background] in await background.reclaim() }
-            guard afterBackground, !foreground else { return }
-            foreground = true
-            startAutomaticWork()
+            let ticket = transferOwnership.reclaim()
+            Task { [self, background] in
+                await background.reclaim()
+                guard transferOwnership.reclaimed(ticket) else { return }
+                if afterBackground || !foreground {
+                    foreground = true
+                    startAutomaticWork()
+                }
+            }
         }
     }
 }

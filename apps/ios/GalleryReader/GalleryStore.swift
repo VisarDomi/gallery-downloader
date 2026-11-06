@@ -21,6 +21,15 @@ private struct GalleryProgress: Codable {
     let extraThumbnails: Set<Int>
 }
 
+private struct MediaTransferKey: Hashable, Sendable {
+    let item: MediaID
+    let revision: String
+}
+private struct MediaTransfer {
+    var ownership: SharedWorkState
+    let task: Task<URL, Error>
+}
+
 private struct MediaID: Hashable, Sendable {
     let gallery: Int
     let page: Int
@@ -33,22 +42,31 @@ actor GalleryStore {
     private let continuation: AsyncStream<StoreEvent>.Continuation
     private let api: any GallerySource
     private var library = LibrarySnapshot()
-    private var busy = false
+    private enum OpenState {
+        case unopened
+        case opening(UUID, Task<Void, Error>)
+        case ready
+    }
+    private var openState = OpenState.unopened
+    private var downloadActivity = OperationState()
+    private var busy: Bool { downloadActivity.isRunning }
     private var message = "Opening library…"
     private var originalExtras: [String: Set<Int>] = [:]
     private var headers: [String: GalleryHeader] = [:]
     private var savedProgress: [String: GalleryProgress] = [:]
-    private var warming = false
+    private var warmingActivity = OperationState()
+    private var warming: Bool { warmingActivity.isRunning }
     private var interactive = 0
     private var extras: [String: Set<Int>] = [:]
-    private var transfers: [MediaID: Task<URL, Error>] = [:]
+    private var transfers: [MediaTransferKey: MediaTransfer] = [:]
     private var priorityGalleries = Set<Int>()
     private var checkpointChanges = 0
     private var lastCheckpoint = Date.distantPast
     private var indexByKey: [String: Int] = [:]
     private var catalogItems: [GalleryItem] = []
     private var manifestTasks: [String: Task<GalleryManifest, Error>] = [:]
-    private var syncing = false
+    private var catalogActivity = OperationState()
+    private var syncing: Bool { catalogActivity.isRunning }
     private var catalogDirty = false
     private var validatedKeys = Set<String>()
     private var savedViewState: ViewState?
@@ -93,7 +111,11 @@ actor GalleryStore {
     func flushProgress() throws { try checkpoint(force: true) }
 
     func cancelTransfers() {
-        for transfer in transfers.values { transfer.cancel() }
+        for key in Array(transfers.keys) {
+            transfers[key]?.ownership.cancel()
+            transfers[key]?.task.cancel()
+        }
+        transfers.removeAll()
         try? checkpoint(force: true)
     }
 
@@ -108,8 +130,8 @@ actor GalleryStore {
 
     func warmRemaining() async {
         guard !warming, library.galleries.count < headers.count else { return }
-        warming = true
-        defer { warming = false }
+        let operation = warmingActivity.begin()
+        defer { warmingActivity.finish(operation) }
         for item in catalogItems {
             if Task.isCancelled { return }
             while interactive > 0 {
@@ -181,6 +203,24 @@ actor GalleryStore {
     }
 
     func load() async throws {
+        if case .ready = openState { return }
+        let id: UUID, task: Task<Void, Error>
+        if case .opening(let current, let running) = openState { id = current; task = running }
+        else {
+            id = UUID()
+            task = Task { try await self.openStore() }
+            openState = .opening(id, task)
+        }
+        do {
+            try await task.value
+            if case .opening(let current, _) = openState, current == id { openState = .ready }
+        } catch {
+            if case .opening(let current, _) = openState, current == id { openState = .unopened }
+            throw error
+        }
+    }
+
+    private func openStore() async throws {
         let start = Date()
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         var values = URLResourceValues(); values.isExcludedFromBackup = true
@@ -208,25 +248,30 @@ actor GalleryStore {
                 try DurableFile.write(try JSONEncoder().encode(orderedHeaders), to: indexURL)
             }
         }
+        var loadedHeaders: [String: GalleryHeader] = [:]
+        var loadedProgress: [String: GalleryProgress] = [:]
         for header in orderedHeaders {
             try header.validate()
-            guard headers[header.item.key] == nil else { throw ReaderError.invalidCatalog }
-            headers[header.item.key] = header
+            guard loadedHeaders[header.item.key] == nil else { throw ReaderError.invalidCatalog }
+            loadedHeaders[header.item.key] = header
         }
-        catalogItems = (try? JSONDecoder().decode([GalleryItem].self, from: Data(contentsOf: root.appendingPathComponent("catalog.json")))) ?? orderedHeaders.map(\.item)
+        let loadedCatalog = (try? JSONDecoder().decode([GalleryItem].self, from: Data(contentsOf: root.appendingPathComponent("catalog.json")))) ?? orderedHeaders.map(\.item)
         if let data = try? Data(contentsOf: root.appendingPathComponent("progress.json")),
            let progress = try? JSONDecoder().decode([String: GalleryProgress].self, from: data) {
             for (key, state) in progress {
-                guard let header = headers[key], state.revision == header.revision,
+                guard let header = loadedHeaders[key], state.revision == header.revision,
                       state.originalCount >= 0, state.originalCount <= header.item.pages,
                       (state.extraOriginals ?? []).allSatisfy({ $0 >= state.originalCount && $0 < header.item.pages }) else { continue }
                 let total = header.thumbnailRevision == nil ? 0 : header.item.pages
                 guard state.thumbnailRevision == header.thumbnailRevision,
                       state.thumbnailCount >= 0, state.thumbnailCount <= total,
                       state.extraThumbnails.allSatisfy({ $0 >= state.thumbnailCount && $0 < total }) else { continue }
-                savedProgress[key] = state
+                loadedProgress[key] = state
             }
         }
+        headers = loadedHeaders
+        savedProgress = loadedProgress
+        catalogItems = loadedCatalog
         startupMetrics["store_load_ms"] = Date().timeIntervalSince(start) * 1000
         startupMetrics["launch_gallery_records"] = Double(headers.count)
         startupMetrics["launch_image_records"] = 0
@@ -326,8 +371,8 @@ actor GalleryStore {
 
     func refreshCatalog() async throws {
         guard !syncing else { return }
-        syncing = true
-        defer { syncing = false; publish(message) }
+        let operation = catalogActivity.begin()
+        defer { catalogActivity.finish(operation); publish(message) }
         do {
             let remote = try CatalogSelection.completed(await api.catalog())
             let ordered = CatalogSelection.ordered(remote: remote, saved: catalogItems)
@@ -372,6 +417,8 @@ actor GalleryStore {
 
     func downloadAll() async throws {
         guard !busy else { return }
+        let operation = downloadActivity.begin()
+        defer { downloadActivity.finish(operation) }
         if headers.isEmpty { try await refreshCatalog() }
         // Hydrate only unfinished galleries for transfer scheduling. Completed
         // metadata is warmed separately, one gallery at a time.
@@ -391,7 +438,6 @@ actor GalleryStore {
             publish("Saved for offline reading. " + summary())
             return
         }
-        busy = true
         publish("Saving source thumbnails…")
         var failures = 0
         var lastFailure = ""
@@ -427,12 +473,12 @@ actor GalleryStore {
             }
             try Task.checkCancellation()
             try checkpoint(force: true)
-            busy = false
+            downloadActivity.finish(operation)
             publish(failures == 0 ? "Saved for offline reading. " + summary()
                     : "\(failures) downloads waiting for automatic retry. \(lastFailure)")
         } catch {
             try? checkpoint(force: true)
-            busy = false
+            downloadActivity.finish(operation)
             publish(Task.isCancelled ? "Paused. Downloads continue when the app is active." : error.localizedDescription)
             throw error
         }
@@ -486,29 +532,50 @@ actor GalleryStore {
         guard pages.indices.contains(id.page),
               let destination = Self.file(root: root, saved: saved, page: id.page, thumbnail: id.thumbnail) else { throw ReaderError.missingImage }
         let page = pages[id.page]
-        if let existing = transfers[id] {
-            if urgent { await api.prioritize(page.url) }
-            return try await existing.value
-        }
         let committed = id.thumbnail
             ? id.page < saved.thumbnailCount || extras[saved.item.key]?.contains(id.page) == true
             : id.page < saved.originalCount || originalExtras[saved.item.key]?.contains(id.page) == true
         // Viewing a saved image is a read, not download activity. Do not create
         // transfer tasks, checkpoint work, or UI progress events for these reads.
         if committed && DurableFile.matches(destination, size: page.size) { return destination }
-        let transfer = Task { [api] in
-            if !DurableFile.matches(destination, size: page.size) {
-                let temporary = try await api.download(page, urgent: urgent)
-                defer { try? FileManager.default.removeItem(at: temporary) }
-                try Task.checkCancellation()
-                do { try DurableFile.commit(temporary, to: destination, expectedSize: page.size) }
-                catch DurableFileError.wrongSize { throw ReaderError.wrongSize }
+        let revision = id.thumbnail ? (saved.manifest.thumbnails?.revision ?? saved.manifest.revision) : saved.manifest.revision
+        let key = MediaTransferKey(item: id, revision: revision)
+        if transfers[key] == nil {
+            let ownership = SharedWorkState()
+            let transfer = Task { [self, api] in
+                defer { if transfers[key]?.ownership.id == ownership.id { transfers[key] = nil } }
+                if !DurableFile.matches(destination, size: page.size) {
+                    let temporary = try await api.download(page, urgent: urgent)
+                    defer { try? FileManager.default.removeItem(at: temporary) }
+                    try Task.checkCancellation()
+                    do { try DurableFile.commit(temporary, to: destination, expectedSize: page.size) }
+                    catch DurableFileError.wrongSize { throw ReaderError.wrongSize }
+                }
+                guard transfers[key]?.ownership.id == ownership.id else { throw CancellationError() }
+                let current = library.galleries[id.gallery].manifest
+                let currentRevision = id.thumbnail ? (current.thumbnails?.revision ?? current.revision) : current.revision
+                guard currentRevision == revision else { throw CancellationError() }
+                return try recordMedia(id, saved: saved, pages: pages, destination: destination)
             }
-            return destination
+            transfers[key] = MediaTransfer(ownership: ownership, task: transfer)
         }
-        transfers[id] = transfer
-        defer { transfers.removeValue(forKey: id) }
-        let result = try await withTaskCancellationHandler(operation: { try await transfer.value }, onCancel: { transfer.cancel() })
+        guard let caller = transfers[key]?.ownership.join(), let transfer = transfers[key] else { throw CancellationError() }
+        return try await withTaskCancellationHandler {
+            if urgent { await api.prioritize(page.url) }
+            let result = try await transfer.task.value
+            try Task.checkCancellation()
+            return result
+        } onCancel: { Task { await self.abandonMedia(key, id: transfer.ownership.id, caller: caller) } }
+    }
+
+    private func abandonMedia(_ key: MediaTransferKey, id: UUID, caller: UUID) {
+        guard transfers[key]?.ownership.id == id else { return }
+        if transfers[key]?.ownership.leave(caller) == true {
+            transfers[key]?.task.cancel(); transfers[key] = nil
+        }
+    }
+
+    private func recordMedia(_ id: MediaID, saved: SavedGallery, pages: [MediaPage], destination: URL) throws -> URL {
         // Completion follows durable media bytes. Out-of-order visible thumbnails
         // are recorded separately until the contiguous prefix catches up.
         if id.thumbnail {
@@ -529,7 +596,7 @@ actor GalleryStore {
         try checkpoint()
         let kind = id.thumbnail ? "Thumbnails" : "Pages"
         publish("\(kind) · gallery \(id.gallery + 1)/\(library.galleries.count) · \(id.page + 1)/\(pages.count)")
-        return result
+        return destination
     }
 
     // The phone's files read on the calling thread, for a relaunch's first frame (the store

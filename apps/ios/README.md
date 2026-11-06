@@ -285,3 +285,13 @@ The recovery copy of the renewal setup is
 - `devicectl` says the phone is unavailable although it answers on the LAN: see Mac access
   (Tailscale on the phone, the Mac's pairing services).
 - Simulator: one app at a time (port 8765), and `-downloads` only when the Mac has the space.
+
+## Explicit state transitions
+
+Runtime workflow states and ownership invariants are catalogued in
+[the shared state inventory](../../../../ios-tools/native/state-machines.json).
+Tasks may publish only for their current owner. A cancelled caller releases its
+own transfer lease, and callbacks from an older operation cannot finish a newer
+one. Playback intent, readiness, terminal media, foreground ownership and gesture
+visibility are separate machines. Recovery reuses the existing durable data and
+bundle identities; it does not clear sessions, progress or caches.

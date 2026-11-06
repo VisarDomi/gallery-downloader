@@ -1,5 +1,6 @@
 import Foundation
 import KitCore
+import KitLifecycle
 
 // Galleries keep downloading while the app is away: locked, in the background, or closed by iOS.
 // When the app leaves the screen, the unfinished pages (priority galleries first, previews before
@@ -15,6 +16,7 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
     private let base: URL
     private let trust: LocalTrust
     private let lock = NSLock()
+    private let ownership = Ownership()
     private struct Completion: @unchecked Sendable { let call: () -> Void }
     private var finishEvents: Completion?
     private lazy var session: URLSession = {
@@ -41,19 +43,33 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
         _ = session
     }
 
-    func handOff(_ items: [Item]) async {
-        let running = Set(await session.allTasks.compactMap { $0.taskDescription.flatMap(Self.decode)?.file })
-        for item in items where !running.contains(item.file) {
-            guard item.path.hasPrefix("/offline-api/"), !item.path.contains(".."),
-                  let url = URL(string: item.path, relativeTo: base)?.absoluteURL, url.host == base.host else { continue }
-            let task = session.downloadTask(with: url)
-            task.taskDescription = [item.file, String(item.size)].joined(separator: "\n")
-            task.resume()
-        }
-    }
+    func handOff(_ items: [Item]) async { await ownership.handOff(items, base: base, session: session) }
+    func reclaim() async { await ownership.reclaim(session) }
 
-    func reclaim() async {
-        for task in await session.allTasks { task.cancel() }
+    private actor Ownership {
+        private var state = TransferOwnership()
+        func handOff(_ items: [Item], base: URL, session: URLSession) async {
+            let ticket = state.handOff()
+            let tasks = await session.allTasks
+            guard state.ownsHandoff(ticket) else { return }
+            var running = Set(tasks.compactMap { $0.taskDescription.flatMap(BackgroundDownloads.decode)?.file })
+            for item in items where running.insert(item.file).inserted {
+                guard item.path.hasPrefix("/offline-api/"), !item.path.contains(".."),
+                      !item.file.hasPrefix("/"), !item.file.split(separator: "/").contains(".."),
+                      let url = URL(string: item.path, relativeTo: base)?.absoluteURL, url.host == base.host else { continue }
+                let task = session.downloadTask(with: url)
+                task.taskDescription = [item.file, String(item.size)].joined(separator: "\n")
+                task.resume()
+            }
+            state.handedOff(ticket)
+        }
+        func reclaim(_ session: URLSession) async {
+            let ticket = state.reclaim()
+            let tasks = await session.allTasks
+            guard state.ownsReclaim(ticket) else { return }
+            for task in tasks { task.cancel() }
+            state.reclaimed(ticket)
+        }
     }
 
     private static func decode(_ description: String) -> (file: String, size: Int64)? {
