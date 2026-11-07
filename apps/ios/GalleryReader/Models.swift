@@ -1,4 +1,5 @@
 import Foundation
+import KitCore
 
 struct GalleryItem: Codable, Sendable, Equatable {
     let key: String
@@ -157,13 +158,18 @@ struct GalleryHeader: Codable, Sendable {
     }
 }
 
-struct ViewPosition: Codable, Sendable {
+struct ViewPosition: Codable, Sendable, Equatable {
     let path: String
     let anchor: String?
     let page: Int?
     let fraction: Double
     let y: Double
     let strips: [String: Double]
+    var zoom: ZoomState? = nil
+    var aspect: Double? = nil
+    var point: Double? = nil
+    var anchorOffset: Double? = nil
+    var viewportWidth: Double? = nil
 
     static func route(_ path: String) -> String? {
         guard let url = URLComponents(string: path), url.scheme == nil, url.host == nil,
@@ -185,7 +191,10 @@ struct ViewPosition: Codable, Sendable {
         guard Self.route(path) != nil, fraction.isFinite, (0...1).contains(fraction),
               y.isFinite, (0...1_000_000_000).contains(y), strips.count <= 20_000,
               strips.allSatisfy({ $0.key.count < 100 && $0.value.isFinite && (0...1_000_000_000).contains($0.value) }),
-              page == nil || (0..<1_000_000).contains(page!), (anchor?.count ?? 0) < 100
+              page == nil || (0..<1_000_000).contains(page!), (anchor?.count ?? 0) < 100,
+              point?.isFinite ?? true, aspect.map({ $0.isFinite && $0 > 0 }) ?? true, anchorOffset?.isFinite ?? true, viewportWidth.map({ $0.isFinite && $0 > 0 }) ?? true,
+              zoom.map({ $0.scale.isFinite && (1...100).contains($0.scale) &&
+                         $0.x.isFinite && (0...1).contains($0.x) && $0.y.isFinite && (0...1).contains($0.y) }) ?? true
         else { throw ReaderError.invalidCatalog }
     }
 }

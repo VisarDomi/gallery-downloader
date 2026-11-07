@@ -29,6 +29,7 @@ final class AppController {
     private var warming: Task<Void, Never>?
     private var poller: Task<Void, Never>?
     private var listening: Task<Void, Never>?
+    private var positionSave: Task<Void, Never>?
     private var foreground = true
     private var transferOwnership = TransferOwnership()
     private enum Startup { case waiting, opening, ready }
@@ -45,6 +46,14 @@ final class AppController {
         background = BackgroundDownloads(root: root, base: base, certificateURL: certificate)
         positions = Self.readViewState(root)?.positions ?? [:]
     }
+
+    #if targetEnvironment(simulator)
+    init(checkStore: GalleryStore) {
+        store = checkStore
+        background = BackgroundDownloads(root: store.root, base: URL(string: "https://127.0.0.1:9")!, certificateURL: nil)
+        positions = Self.readViewState(store.root)?.positions ?? [:]
+    }
+    #endif
 
     func makeNavigation() -> LiveNavigationController {
         // The screens come back as they were left, their images on the phone in the first frame.
@@ -110,8 +119,11 @@ final class AppController {
 
     func savePosition(_ position: ViewPosition) {
         guard let route = ViewPosition.route(position.path) else { return }
+        guard positions[route] != position else { return }
         positions[route] = position
-        Task { [store] in
+        let previous = positionSave
+        positionSave = Task { [store] in
+            await previous?.value
             do { try await store.saveViewPosition(JSONEncoder().encode(position)) }
             catch { Log.store.error("Position not saved: \(error.localizedDescription, privacy: .public)") }
         }
@@ -260,6 +272,7 @@ final class AppController {
 
     private func observeLifecycle() {
         let lifecycle = AppLifecycle.shared
+        lifecycle.onResignActiveAsync { [weak self] in await self?.positionSave?.value }
         // Leaving the screen at all (or just Control Center): save, and hand the unfinished
         // pages to iOS while still active.
         lifecycle.onResignActive { [weak self] in

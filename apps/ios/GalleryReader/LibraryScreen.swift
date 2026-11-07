@@ -31,6 +31,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
     private var strips: [String: Double]
     private var pendingAnchor: ScrollAnchor?
     private var restored = false
+    private var capturedAnchor: ScrollAnchor?
     private var observer: NSObjectProtocol?
     private var catalogWaiting = false
     private var rowsMoving: Bool { table.isTracking || table.isDragging || table.isDecelerating }
@@ -40,7 +41,9 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         self.app = app
         let saved = state.flatMap { try? JSONDecoder().decode(State.self, from: $0) }
         let position = app.position(for: .library(page: 1)) ?? app.position(for: .library(page: page))
-        pendingAnchor = saved?.anchor ?? position?.anchor.map { ScrollAnchor(key: $0, fraction: position?.fraction ?? 0) }
+        pendingAnchor = saved?.anchor ?? position?.anchor.map {
+            ScrollAnchor(key: $0, fraction: position?.fraction ?? 0, offset: position?.anchorOffset, width: position?.viewportWidth)
+        }
         strips = saved?.strips ?? app.allStripOffsets()
         super.init(nibName: nil, bundle: nil)
     }
@@ -51,7 +54,18 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
     var route: Data { (try? JSONEncoder().encode(Route.library(page: 1))) ?? Data() }
-    func savedState() -> Data? { try? JSONEncoder().encode(State(anchor: currentAnchor, strips: strips)) }
+    func savedState() -> Data? { try? JSONEncoder().encode(State(anchor: pendingAnchor ?? currentAnchor ?? capturedAnchor, strips: strips)) }
+
+    func captureState() {
+        guard isViewLoaded, restored else { return }
+        for cell in table.visibleCells.compactMap({ $0 as? GalleryRowCell }) where cell.isPopulated {
+            if let key = cell.item?.key { strips[key] = Double(cell.stripOffset) }
+        }
+        capturedAnchor = currentAnchor ?? capturedAnchor
+        app.savePosition(ViewPosition(path: Route.library(page: 1).path, anchor: capturedAnchor?.key, page: nil,
+                                      fraction: capturedAnchor?.fraction ?? 0, y: Double(max(0, table.contentOffset.y)), strips: strips,
+                                      anchorOffset: capturedAnchor?.offset, viewportWidth: capturedAnchor?.width))
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -232,6 +246,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         if let anchor = pendingAnchor {
             guard catalog.contains(where: { $0.key == anchor.key }) else { restored = true; pendingAnchor = nil; return }
             restore(anchor)
+            capturedAnchor = anchor
         }
         pendingAnchor = nil
         restored = true
@@ -239,18 +254,15 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
 
     private func saveNow() {
         guard restored else { return }
-        for cell in table.visibleCells.compactMap({ $0 as? GalleryRowCell }) where cell.isPopulated {
-            if let key = cell.item?.key { strips[key] = Double(cell.stripOffset) }
-        }
-        let anchor = currentAnchor
-        app.savePosition(ViewPosition(path: Route.library(page: 1).path, anchor: anchor?.key, page: nil,
-                                      fraction: anchor?.fraction ?? 0, y: Double(max(0, table.contentOffset.y)),
-                                      strips: strips))
+        captureState()
         stateChanged()
     }
 
     func scrollViewDidScroll(_ scrollView: UIScrollView) { app.pipeline.prioritiesChanged() }
-    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) { monitor(true) }
+    func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+        pendingAnchor = nil; restored = true
+        monitor(true)
+    }
     func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
         if !decelerate { monitor(false); saveNow(); if catalogWaiting { libraryChanged() } }
     }

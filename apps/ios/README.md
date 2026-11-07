@@ -10,6 +10,12 @@ Installed as bundle ID `com.visar.GalleryReader.paid`, team `65U58U86DD`, displa
 **Gallery Reader**, no custom icons, no push entitlements or background modes. The PC
 address is `GalleryServerURL` in `Resources/Info.plist` (`https://192.168.1.197:7777`).
 
+Restoration captures current reader/list/thumbnail-strip positions at navigation and
+lifecycle boundaries. Optional zoom, page geometry and exact list-anchor fields extend
+the existing local format; old records remain readable. Position writes are serialized
+and joined by the lifecycle save lease before suspension. Pending restores cannot be
+replaced by provisional startup coordinates. Save intervals are unchanged.
+
 ## What it does
 
 The owner relies on all of this.

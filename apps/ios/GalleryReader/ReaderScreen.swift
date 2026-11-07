@@ -29,7 +29,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             initial = saved
         } else if let saved = app.position(for: .reader(key: key, page: page)), saved.path == Route.reader(key: key, page: page).path,
                   let index = saved.page {
-            initial = StripPosition(index: index, fraction: saved.fraction)
+            initial = StripPosition(index: index, fraction: saved.fraction, zoom: saved.zoom, aspect: saved.aspect, point: saved.point)
         } else {
             initial = StripPosition(index: page - 1, fraction: 0)
         }
@@ -42,7 +42,12 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     override var prefersHomeIndicatorAutoHidden: Bool { true }
 
     var route: Data { (try? JSONEncoder().encode(Route.reader(key: key, page: page))) ?? Data() }
-    func savedState() -> Data? { try? JSONEncoder().encode(strip.currentPosition ?? initial) }
+    func savedState() -> Data? { try? JSONEncoder().encode(strip.savedPosition ?? initial) }
+
+    func captureState() {
+        guard isViewLoaded, let position = strip.currentPosition else { return }
+        savePosition(position)
+    }
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -96,7 +101,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
             StripPage(key: "\(key)/page/\(index)",
                       aspect: (page.width ?? 0) > 0 && (page.height ?? 0) > 0 ? CGFloat(page.width! / page.height!) : nil)
         }
-        strip.setPages(pages, position: StripPosition(index: min(max(0, initial.index), max(0, pages.count - 1)), fraction: initial.fraction))
+        strip.setPages(pages, position: StripPosition(index: min(max(0, initial.index), max(0, pages.count - 1)), fraction: initial.fraction, zoom: initial.zoom, aspect: initial.aspect, point: initial.point))
     }
 
     private func updateMessage() {
@@ -119,11 +124,26 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
 
     func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL? { app.savedFile(key, index: index, thumbnail: false) }
 
+    #if targetEnvironment(simulator)
+    var checkViewportState: [String: Any] { strip.state }
+    func checkViewport(y: Double?, scale: Double?, x: Double?) {
+        strip.scrollViewWillBeginDragging(strip.scrollView)
+        if let scale { strip.scrollView.setZoomScale(CGFloat(scale), animated: false) }
+        if let x { strip.scrollView.contentOffset.x = CGFloat(x) }
+        if let y { strip.scrollView.contentOffset.y = CGFloat(y) }
+        strip.scrollViewDidScroll(strip.scrollView)
+    }
+    #endif
+
     func strip(_ strip: StripReaderView, settledAt position: StripPosition) {
+        savePosition(position)
+        stateChanged()
+    }
+
+    private func savePosition(_ position: StripPosition) {
         page = position.index + 1
         app.savePosition(ViewPosition(path: Route.reader(key: key, page: page).path, anchor: nil, page: position.index,
-                                      fraction: position.fraction, y: 0, strips: [:]))
-        stateChanged()
+                                      fraction: position.fraction, y: 0, strips: [:], zoom: position.zoom, aspect: position.aspect, point: position.point))
     }
 
     func strip(_ strip: StripReaderView, failureTextFor index: Int, error: Error) -> String? {
