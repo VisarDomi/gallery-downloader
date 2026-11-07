@@ -15,6 +15,8 @@ lifecycle boundaries. Optional zoom, page geometry and exact list-anchor fields 
 the existing local format; old records remain readable. Position writes are serialized
 and joined by the lifecycle save lease before suspension. Pending restores cannot be
 replaced by provisional startup coordinates. Save intervals are unchanged.
+Thumbnail strips also retain their pending sideways position until the collection's
+first usable layout, before capturing or showing a restored row.
 
 ## What it does
 
