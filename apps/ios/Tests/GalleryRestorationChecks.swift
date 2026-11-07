@@ -51,7 +51,7 @@ final class GalleryRestorationChecks: UIViewController {
         let top = nav.topViewController!, table = find(UITableView.self, in: top.view)
         let strips = (table?.visibleCells ?? []).compactMap { cell -> [String: Any]? in
             guard let row = cell as? GalleryRowCell, let id = row.item?.key, let strip = find(ThumbnailStripView.self, in: row) else { return nil }
-            return ["key": id, "x": strip.collectionView.contentOffset.x]
+            return ["key": id, "x": strip.collectionView.contentOffset.x, "count": strip.keys.count, "decoded": strip.decodedCount]
         }
         return ["ready": nav.view.window != nil, "error": error, "screen": top is ReaderScreen ? "reader" : "list",
                 "listY": table?.contentOffset.y ?? 0, "strips": strips,
