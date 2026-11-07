@@ -40,11 +40,11 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
     init(app: AppController, page: Int = 1, state: Data?) {
         self.app = app
         let saved = state.flatMap { try? JSONDecoder().decode(State.self, from: $0) }
-        let position = app.position(for: .library(page: 1)) ?? app.position(for: .library(page: page))
+        let position = app.positions.position(for: .library(page: 1)) ?? app.positions.position(for: .library(page: page))
         pendingAnchor = saved?.anchor ?? position?.anchor.map {
             ScrollAnchor(key: $0, fraction: position?.fraction ?? 0, offset: position?.anchorOffset, width: position?.viewportWidth)
         }
-        strips = saved?.strips ?? app.allStripOffsets()
+        strips = saved?.strips ?? app.positions.stripOffsets
         super.init(nibName: nil, bundle: nil)
     }
 
@@ -62,7 +62,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
             if let key = cell.item?.key { strips[key] = Double(cell.stripOffset) }
         }
         capturedAnchor = currentAnchor ?? capturedAnchor
-        app.savePosition(ViewPosition(path: Route.library(page: 1).path, anchor: capturedAnchor?.key, page: nil,
+        app.positions.save(ViewPosition(path: Route.library(page: 1).path, anchor: capturedAnchor?.key, page: nil,
                                       fraction: capturedAnchor?.fraction ?? 0, y: Double(max(0, table.contentOffset.y)), strips: strips,
                                       anchorOffset: capturedAnchor?.offset, viewportWidth: capturedAnchor?.width))
     }
@@ -90,7 +90,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         countLabel.textColor = UIColor(white: 0.53, alpha: 1)
         statusLabel.font = .systemFont(ofSize: 14)
         statusLabel.textColor = UIColor(white: 0.67, alpha: 1)
-        observer = NotificationCenter.default.addObserver(forName: .libraryChanged, object: app, queue: .main) { [weak self] _ in
+        observer = NotificationCenter.default.addObserver(forName: .libraryChanged, object: app.library, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.libraryChanged() }
         }
         DebugState.shared.register("libraryScreen") { [weak self] in
@@ -99,7 +99,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
                     "offset": table.contentOffset.y, "described": pages.count]
         }
         // The saved catalog at once (the first frame lists it); the store's own follows.
-        if app.library.catalog.isEmpty, let saved = app.catalogNow() {
+        if app.library.snapshot.catalog.isEmpty, let saved = app.library.catalogNow() {
             catalog = saved
             signature = saved.map { "\($0.key)\u{1F}\($0.title)" }
             countLabel.text = "\(saved.count) Favorites"
@@ -122,7 +122,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
 
     // A later catalog keeps the place on screen (the row at the middle stays put).
     private func libraryChanged() {
-        let library = app.library
+        let library = app.library.snapshot
         if !library.catalog.isEmpty || catalog.isEmpty { countLabel.text = "\(library.catalog.count) Favorites" }
         statusLabel.text = library.message
         layoutFooter()
@@ -135,7 +135,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         }
         catalogWaiting = false
         // Until the store has opened, its empty library is not news: the saved catalog stays.
-        if next != signature && (app.libraryLoaded || catalog.isEmpty) {
+        if next != signature && (app.library.loaded || catalog.isEmpty) {
             let anchor = restored ? currentAnchor : nil
             catalog = library.catalog
             signature = next
@@ -173,7 +173,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         describing.insert(key)
         Task { [weak self, app] in
             do {
-                let (manifest, _) = try await app.gallery(key)
+                let (manifest, _) = try await app.library.gallery(key)
                 guard let self else { return }
                 describing.remove(key)
                 pages[key] = manifest.pages.count
@@ -197,7 +197,7 @@ final class LibraryScreen: UIViewController, LiveScreen, UITableViewDataSource, 
         let item = catalog[row]
         // The page count from the saved manifest at once while relaunching (the row's strip, not
         // its title, in the first frame); otherwise from the store in the background (describe).
-        if pages[item.key] == nil, let manifest = app.manifestNow(item.key) { pages[item.key] = manifest.pages.count }
+        if pages[item.key] == nil, let manifest = app.library.manifestNow(item.key) { pages[item.key] = manifest.pages.count }
         cell.configure(item: item, pages: pages[item.key], failure: failures[item.key], offset: CGFloat(strips[item.key] ?? 0),
                        app: app, delegate: self)
         if pages[item.key] == nil && failures[item.key] == nil { describe(item.key) }
@@ -387,12 +387,12 @@ final class GalleryRowCell: UITableViewCell, ThumbnailStripDelegate {
 
     func strip(_ strip: ThumbnailStripView, sourceFor index: Int) -> ImageSource {
         guard let key = item?.key, let app else { return .load { throw CancellationError() } }
-        return .load { try await app.mediaFile(key, index: index, thumbnail: true) }
+        return .load { try await app.library.mediaFile(key, index: index, thumbnail: true) }
     }
 
     func strip(_ strip: ThumbnailStripView, localFileFor index: Int) -> URL? {
         guard let key = item?.key, let app else { return nil }
-        return app.savedFile(key, index: index, thumbnail: true)
+        return app.library.savedFile(key, index: index, thumbnail: true)
     }
 
     func strip(_ strip: ThumbnailStripView, didSelect index: Int) { delegate?.row(self, didSelectPage: index) }

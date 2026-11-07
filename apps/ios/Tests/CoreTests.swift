@@ -174,6 +174,21 @@ struct CoreTests {
             try expect(ViewPosition.route(badPath) == nil, "Reject invalid restoration routes")
         }
         print("PASS: persistent reader/library state and safe restoration routes")
+        let positions = await ViewPositions(store: emptyStore)
+        let legacyRoutes = await positions.legacyRoutes
+        try expect(legacyRoutes == [.library(page: 2), .reader(key: "hitomi-34", page: 50)], "Migration keeps only route values, rather than retaining a second full position snapshot")
+        let newer = ViewPosition(path: readerPosition.path, anchor: nil, page: 49, fraction: 0.625,
+            y: readerPosition.y, strips: [:], zoom: ZoomState(scale: 2.3, x: 0.68), aspect: 0.375, point: -0.125)
+        await positions.save(libraryPosition)
+        await positions.save(newer)
+        await positions.finishWrites()
+        let joined = GalleryStore(root: emptyStore.root, api: emptySource)
+        let durableViews = await joined.viewState()
+        try expect(durableViews.positions["reader:hitomi-34"] == newer, "Position owner joins the latest queued snapshot with all viewport fields")
+        let restoredPosition = await positions.position(for: .reader(key: "hitomi-34", page: 50))
+        try expect(restoredPosition == newer && durableViews.positions["library:2"] == libraryPosition, "First-frame mirror and durable positions agree without losing another view")
+        print("PASS: position ownership, ordered writes, complete viewport and suspension join")
+
         let cold = GalleryStore(root: failedRoot, api: emptySource)
         try await cold.load()
         let initiallyLoaded = await cold.loadedGalleryCount()

@@ -48,7 +48,7 @@ final class InfoSheet: UIViewController {
         build()
         if details == nil {
             Task { [weak self, app, item] in
-                let gallery = try? await app.gallery(item.key)
+                let gallery = try? await app.library.gallery(item.key)
                 guard let self else { return }
                 details = gallery?.manifest
                 build()
@@ -95,7 +95,7 @@ final class InfoSheet: UIViewController {
         }
         stack.addArrangedSubview(row("Pages", String(manifest.pages.count)))
         stack.addArrangedSubview(row("Source", item.key))
-        let saved = app.library.originals[item.key]?.downloaded ?? 0, thumbs = app.library.thumbnails[item.key]?.downloaded ?? 0
+        let saved = app.library.snapshot.originals[item.key]?.downloaded ?? 0, thumbs = app.library.snapshot.thumbnails[item.key]?.downloaded ?? 0
         stack.addArrangedSubview(row("Device", "\(saved)/\(manifest.pages.count) pages · \(thumbs) thumbnails"))
         if let tags = meta?.tags, !tags.isEmpty { stack.addArrangedSubview(TagCloud(tags)) }
     }

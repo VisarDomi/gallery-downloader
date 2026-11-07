@@ -15,6 +15,6 @@ for module in KitCore KitNet KitLifecycle; do
     -emit-module-path "$test_dir/$module.swiftmodule" -o "$test_dir/lib$module.dylib" -Xlinker -install_name -Xlinker @rpath/lib$module.dylib
 done
 xcrun swiftc -j 2 -swift-version 6 -parse-as-library -strict-concurrency=complete -I "$test_dir" -L "$test_dir" -lKitCore -lKitNet -lKitLifecycle -Xlinker -rpath -Xlinker "$test_dir" \
-  GalleryReader/Models.swift GalleryReader/GalleryAPI.swift GalleryReader/GalleryStore.swift GalleryReader/BackgroundDownloads.swift \
+  GalleryReader/Models.swift GalleryReader/GalleryAPI.swift GalleryReader/GalleryStore.swift GalleryReader/BackgroundDownloads.swift GalleryReader/ViewPositions.swift \
   Tests/CoreTests.swift -o "$test_dir/tests"
 "$test_dir/tests" "$@"

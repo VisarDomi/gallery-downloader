@@ -1,5 +1,12 @@
 # Gallery Reader for iPhone
 
+GalleryLibrary owns startup, catalog/image access, automatic sync and download handoff.
+AppController composes services and routes screens. ViewPositions owns the first-frame
+position mirror and ordered actor writes; navigation captures the screen, drains its own
+snapshot and joins that store before suspension. Existing formats and offline retention
+are unchanged.
+
+
 A native UIKit app on NativeKit (`Kit/`, vendored from ios-tools; see the
 [NativeKit guide](../../../../ios-tools/native/README.md)). It loads **all completed
 favorites** from the PC pipeline ([PIPELINE.md](../../PIPELINE.md)), saves their originals
@@ -95,7 +102,9 @@ The shared rules are in the NativeKit guide; here is how this app keeps them.
 | Path | What it owns |
 |---|---|
 | `GalleryReader/AppDelegate.swift` | App and scene delegates; one `AppController`, also created when iOS relaunches the app in the background to deliver finished transfers |
-| `GalleryReader/AppController.swift` | The store and its automatic work (sync, downloads, metadata warm-up, 30 s poll, network monitor), the shared image pipeline, positions, the navigation stack, leaving and returning to the screen, the simulator's `-downloads` switch, debug-state reporters |
+| `GalleryReader/AppController.swift` | Composition, routes, migration and navigation. |
+| `GalleryReader/GalleryLibrary.swift` | Offline snapshots/image access, sync, polling and transfer lifecycle ownership. |
+| `GalleryReader/ViewPositions.swift` | First-frame position mirror, serial persistence and checkpoint completion. |
 | `GalleryReader/LibraryScreen.swift` | The list, `GalleryRowCell` (title or strip, "i" button), anchor and strip offsets, catalog updates in place |
 | `GalleryReader/ReaderScreen.swift` | The reader on `StripReaderView`, its saved place, the pages-saved message, edge back off while zoomed |
 | `GalleryReader/InfoSheet.swift` | A favorite's details |

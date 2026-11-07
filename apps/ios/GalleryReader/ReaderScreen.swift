@@ -27,7 +27,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         // Exact place when this is the page the reader was left on; otherwise the page's top.
         if let saved = state.flatMap({ try? JSONDecoder().decode(StripPosition.self, from: $0) }) {
             initial = saved
-        } else if let saved = app.position(for: .reader(key: key, page: page)), saved.path == Route.reader(key: key, page: page).path,
+        } else if let saved = app.positions.position(for: .reader(key: key, page: page)), saved.path == Route.reader(key: key, page: page).path,
                   let index = saved.page {
             initial = StripPosition(index: index, fraction: saved.fraction, zoom: saved.zoom, aspect: saved.aspect, point: saved.point)
         } else {
@@ -53,14 +53,13 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
         super.viewDidLoad()
         view.backgroundColor = .black
         strip.delegate = self
-        strip.placeholderHeight = { $0 * 1.5 } // 2:3 until a page's size is known
         view.addSubview(strip)
         message.textColor = UIColor(white: 0.73, alpha: 1)
         message.font = .systemFont(ofSize: 16)
         message.numberOfLines = 0
         message.text = "Opening saved pages…"
         view.addSubview(message)
-        observer = NotificationCenter.default.addObserver(forName: .libraryChanged, object: app, queue: .main) { [weak self] _ in
+        observer = NotificationCenter.default.addObserver(forName: .libraryChanged, object: app.library, queue: .main) { [weak self] _ in
             MainActor.assumeIsolated { self?.updateMessage() }
         }
         DebugState.shared.register("reader") { [weak self] in self?.strip.state ?? [:] }
@@ -78,13 +77,13 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     private func open() {
         // The saved manifest at once: a relaunch shows the pages (and how many are saved) in its
         // first frame; the store's answer follows.
-        if let manifest = app.manifestNow(key) {
+        if let manifest = app.library.manifestNow(key) {
             show(manifest)
-            show(downloaded: manifest.pages.indices.filter { app.savedFile(key, index: $0, thumbnail: false) != nil }.count)
+            show(downloaded: manifest.pages.indices.filter { app.library.savedFile(key, index: $0, thumbnail: false) != nil }.count)
         }
         Task { [weak self, app, key] in
             do {
-                let (manifest, state) = try await app.gallery(key)
+                let (manifest, state) = try await app.library.gallery(key)
                 guard let self else { return }
                 if total == 0 { show(manifest) }
                 show(downloaded: state.downloaded)
@@ -105,7 +104,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
     }
 
     private func updateMessage() {
-        guard total > 0, let state = app.library.originals[key] else { return }
+        guard total > 0, let state = app.library.snapshot.originals[key] else { return }
         show(downloaded: state.downloaded)
     }
 
@@ -119,19 +118,19 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
 
     func strip(_ strip: StripReaderView, sourceFor index: Int) -> ImageSource {
         let key = key, app = app
-        return .load { try await app.mediaFile(key, index: index, thumbnail: false) }
+        return .load { try await app.library.mediaFile(key, index: index, thumbnail: false) }
     }
 
-    func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL? { app.savedFile(key, index: index, thumbnail: false) }
+    func strip(_ strip: StripReaderView, localFileFor index: Int) -> URL? { app.library.savedFile(key, index: index, thumbnail: false) }
 
     #if targetEnvironment(simulator)
     var checkViewportState: [String: Any] { strip.state }
     func checkViewport(y: Double?, scale: Double?, x: Double?) {
-        strip.scrollViewWillBeginDragging(strip.scrollView)
-        if let scale { strip.scrollView.setZoomScale(CGFloat(scale), animated: false) }
-        if let x { strip.scrollView.contentOffset.x = CGFloat(x) }
-        if let y { strip.scrollView.contentOffset.y = CGFloat(y) }
-        strip.scrollViewDidScroll(strip.scrollView)
+        strip.scrollViewWillBeginDragging(strip.testScrollView)
+        if let scale { strip.testScrollView.setZoomScale(CGFloat(scale), animated: false) }
+        if let x { strip.testScrollView.contentOffset.x = CGFloat(x) }
+        if let y { strip.testScrollView.contentOffset.y = CGFloat(y) }
+        strip.scrollViewDidScroll(strip.testScrollView)
     }
     #endif
 
@@ -142,7 +141,7 @@ final class ReaderScreen: UIViewController, LiveScreen, StripReaderDelegate {
 
     private func savePosition(_ position: StripPosition) {
         page = position.index + 1
-        app.savePosition(ViewPosition(path: Route.reader(key: key, page: page).path, anchor: nil, page: position.index,
+        app.positions.save(ViewPosition(path: Route.reader(key: key, page: page).path, anchor: nil, page: position.index,
                                       fraction: position.fraction, y: 0, strips: [:], zoom: position.zoom, aspect: position.aspect, point: position.point))
     }
 

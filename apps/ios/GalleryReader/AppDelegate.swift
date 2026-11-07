@@ -19,7 +19,7 @@ final class AppDelegate: UIResponder, UIApplicationDelegate {
 
     func application(_ application: UIApplication, handleEventsForBackgroundURLSession identifier: String,
                      completionHandler: @escaping () -> Void) {
-        controller.background.handleEvents(completionHandler)
+        controller.library.handleBackgroundEvents(completionHandler)
     }
 }
 
