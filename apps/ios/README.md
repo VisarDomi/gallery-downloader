@@ -168,9 +168,8 @@ in the NativeKit guide.
 
 Everything Apple runs on the Mac. Start with [Mac access](../../../../../environment/mac-access.md)
 (`ssh mac`, the phone's UDID `00008101-000639912881401E`, signing). The Mac mirror is
-`/Users/visar/Developer/gallery-downloader/apps/ios`. `scripts/build.sh` and
-`scripts/test.sh` stop on Linux, so `npm run build:ios:native` and `test:ios:native` only
-work on a Mac.
+`/Users/visar/Developer/gallery-downloader/apps/ios`. `scripts/build.sh` stops on Linux, so `npm run build:ios:native` only
+works on a Mac; `scripts/test.sh` (`npm run test:ios:native`) runs here with Swift for Linux.
 
 **The PC's CA certificate.** The app bundles the PC's **public** mkcert root CA in DER
 form as `Resources/LocalCA.cer` (gitignored; the build stops without it). The mirror keeps
@@ -242,8 +241,8 @@ $S/restore-check com.visar.GalleryReader         # relaunch exactness; --warm fo
 
 ### Tests
 
-On the Mac: `bash ~/Developer/gallery-downloader/apps/ios/scripts/test.sh` (what
-`npm run test:ios:native` runs). It covers selection, unsafe or inconsistent manifest
+On this PC: `npm run test:ios:native` (`apps/ios/scripts/test.sh`, Swift 6.2.4 for Linux, ~20 s;
+the Mac runs it too). It covers selection, unsafe or inconsistent manifest
 rejection, empty catalogs, retained offline favorites, partial-file rejection, atomic
 replacement, queue cancellation and priority, stopping a batch when the server is
 unavailable, the small launch index with visible-first loading and full warm-up,

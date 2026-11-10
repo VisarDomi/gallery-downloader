@@ -20,9 +20,13 @@ final class BackgroundDownloads: NSObject, URLSessionDownloadDelegate, @unchecke
     private struct Completion: @unchecked Sendable { let call: () -> Void }
     private var finishEvents: Completion?
     private lazy var session: URLSession = {
+#if canImport(Darwin)
         let configuration = URLSessionConfiguration.background(withIdentifier: (Bundle.main.bundleIdentifier ?? "gallery") + ".pages")
         configuration.isDiscretionary = false
         configuration.sessionSendsLaunchEvents = true
+#else
+        let configuration = URLSessionConfiguration.default  // Linux logic tests: no background sessions
+#endif
         configuration.httpMaximumConnectionsPerHost = GalleryAPI.transferLimit
         configuration.urlCache = nil
         configuration.requestCachePolicy = .reloadIgnoringLocalCacheData

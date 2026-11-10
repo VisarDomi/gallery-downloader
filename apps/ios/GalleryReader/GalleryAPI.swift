@@ -1,5 +1,10 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+#if canImport(Security)
 import Security
+#endif
 
 // Only this LAN host may use the bundled PUBLIC local CA. TLS hostname and
 // certificate validity are still evaluated; no accept-all certificate handler.
@@ -13,6 +18,10 @@ final class LocalTrust: NSObject, URLSessionDelegate, @unchecked Sendable {
 
     func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge,
                     completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+#if !canImport(Security)
+        // Linux (logic tests on the PC) cannot pin the CA: refuse this host, default for others.
+        completionHandler(challenge.protectionSpace.host == host ? .cancelAuthenticationChallenge : .performDefaultHandling, nil)
+#else
         guard challenge.protectionSpace.authenticationMethod == NSURLAuthenticationMethodServerTrust,
               challenge.protectionSpace.host == host,
               let trust = challenge.protectionSpace.serverTrust,
@@ -27,6 +36,7 @@ final class LocalTrust: NSObject, URLSessionDelegate, @unchecked Sendable {
         } else {
             completionHandler(.cancelAuthenticationChallenge, nil)
         }
+#endif
     }
 }
 
