@@ -186,7 +186,16 @@ trust anchor.
 ### Deploy to the phone
 
 From this PC (the owner tests on the phone as soon as a build appears, so deploy each
-change):
+change). Routine delivery uses the durable queue
+([ios-push](../../../../ios-tools/push/README.md)): it freezes the source, builds in a stable
+compiler workspace, signs, installs in place and approves renewal without launching the app.
+
+```sh
+ios-push gallery-downloader:gallery
+ios-push status JOB                  # only "installed" confirms the phone has it
+```
+
+The attached lower-level script remains for diagnosis:
 
 ```sh
 apps/ios/scripts/deploy.sh          # all three steps; or: sync | build | install
